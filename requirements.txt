@@ -1,0 +1,7 @@
+groq
+langgraph
+langchain-core
+sentence-transformers
+faiss-cpu
+PyMuPDF
+numpy

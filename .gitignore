@@ -1,0 +1,17 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Cache files
+.rfp_fulfillment_cache.json
