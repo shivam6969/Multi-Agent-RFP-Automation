@@ -32,6 +32,9 @@ class AgentState(TypedDict, total=False):
     # ── Pricing Agent outputs ─────────────────────────────────────────────────
     pricing_report: str                    # full pricing breakdown
     quoted_items: List[Dict[str, Any]]     # [{product, unit_price, qty, net, gst, total}]
+    line_items: List[Dict[str, Any]]       # frontend-ready rows used for repricing/export
+    pricing_summary: Dict[str, Any]        # totals + applied margin metadata
+    quote_payload: Dict[str, Any]          # contract passed to quotation/pdf generator
 
     # ── Master Agent outputs ──────────────────────────────────────────────────
     final_response: str                    # synthesised answer returned to user
