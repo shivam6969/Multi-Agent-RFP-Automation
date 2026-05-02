@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
-
 from langgraph.graph import END, StateGraph
 
 from state import AgentState
@@ -118,6 +116,14 @@ def synthesise_node(state: AgentState) -> AgentState:
 
     if state.get("pricing_report"):
         sections.append(f"## Pricing\n{state['pricing_report']}")
+    elif state.get("pricing_summary"):
+        summary = state["pricing_summary"]
+        sections.append(
+            "## Pricing Summary\n"
+            f"- Margin: {summary.get('margin_pct', 0)}%\n"
+            f"- Subtotal (ex GST): {summary.get('currency', 'INR')} {summary.get('subtotal_ex_gst', 0):,.2f}\n"
+            f"- Grand Total: {summary.get('currency', 'INR')} {summary.get('grand_total', 0):,.2f}"
+        )
 
     # If only one section, skip the LLM synthesis — just return it directly
     if len(sections) <= 1:

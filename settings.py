@@ -55,6 +55,8 @@ FULFILLMENT_CACHE_PATH: str = ".rfp_fulfillment_cache.json"
 class PricingRules:
     """Adjust margin and discount bands here without touching agent code."""
     base_margin_pct: float = 20.0          # default gross margin %
+    min_margin_pct: float = 0.0            # user cannot set below this
+    max_margin_pct: float = 60.0           # user cannot set above this
     volume_discount_tiers: list = field(default_factory=lambda: [
         {"min_qty": 1,    "max_qty": 99,    "discount_pct": 0.0},
         {"min_qty": 100,  "max_qty": 499,   "discount_pct": 5.0},
@@ -62,6 +64,8 @@ class PricingRules:
         {"min_qty": 1000, "max_qty": 99999, "discount_pct": 12.0},
     ])
     gst_rate_pct: float = 18.0             # GST applied on top of net price
+    currency: str = "INR"
+    rounding_digits: int = 2
     freight_flat_inr: float = 0.0          # 0 = buyer pays, >0 = included
     payment_terms_discount_pct: float = 2.0  # extra discount for advance payment
 
