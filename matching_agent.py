@@ -24,7 +24,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from settings import GROQ_API_KEY
-from bu_rag import BuRagTool, get_bu_rag_tool
+from bu_agent import bu_query
 from llm import chat_completion
 from state import AgentState
 
@@ -33,7 +33,6 @@ from state import AgentState
 
 def _assess_one(
     requirement: str,
-    bu_tool: BuRagTool,
     api_key: Optional[str],
 ) -> Tuple[bool, str]:
     """
@@ -47,7 +46,7 @@ def _assess_one(
         "then one short evidence sentence.\n\n"
         f"Requirement: {requirement}"
     )
-    answer = bu_tool.run_query(prompt, temperature=0.0, api_key=api_key)
+    answer = bu_query(prompt, temperature=0.0, api_key=api_key)
     first = answer.strip().splitlines()[0].strip().lower()
     return first.startswith("yes"), answer.strip()
 
@@ -99,8 +98,6 @@ def matching_agent_node(state: AgentState) -> AgentState:
         state["matched_items"] = []
         return state
 
-    bu_tool = get_bu_rag_tool()
-
     matched_items: List[Dict[str, Any]] = []
     total_weight = 0.0
     matched_weight = 0.0
@@ -113,7 +110,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
         total_weight += weight
 
         print(f"[MatchingAgent] {i}/{total_reqs} Checking: {req[:60]}…")
-        is_match, evidence = _assess_one(req, bu_tool, api_key)
+        is_match, evidence = _assess_one(req, api_key)
         print(f"[MatchingAgent]   → {'✅ MATCH' if is_match else '❌ GAP'}")
 
         matched_items.append(
