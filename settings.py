@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 GROQ_API_KEY: str = "YOUR_GROQ_API_KEY_HERE"   # or set env var GROQ_API_KEY
 LLM_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
+GEMINI_API_KEY: str = ""  # or set env var GEMINI_API_KEY
+GEMINI_MODEL: str = "gemini-2.5-flash"
+
 
 # ─── Embedding / Reranker models ───────────────────────────────────────────────
 

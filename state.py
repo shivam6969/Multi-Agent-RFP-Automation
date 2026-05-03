@@ -36,9 +36,15 @@ class AgentState(TypedDict, total=False):
     pricing_summary: Dict[str, Any]        # totals + applied margin metadata
     quote_payload: Dict[str, Any]          # contract passed to quotation/pdf generator
 
+    # ── Report Agent outputs ──────────────────────────────────────────────────
+    report_pdf_path: str                   # absolute path to the generated PDF
+    report_text: str                       # raw LLM-generated proposal text
+
     # ── Master Agent outputs ──────────────────────────────────────────────────
     final_response: str                    # synthesised answer returned to user
 
     # ── Control / routing ─────────────────────────────────────────────────────
-    route: str                             # "rfp" | "bu" | "match" | "price" | "full"
+    route: str                             # "rfp" | "bu" | "match" | "price" | "full" | "report"
     error: Optional[str]                   # populated if any node fails
+
+    

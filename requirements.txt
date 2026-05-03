@@ -5,3 +5,5 @@ sentence-transformers
 faiss-cpu
 PyMuPDF
 numpy
+google-genai
+reportlab
