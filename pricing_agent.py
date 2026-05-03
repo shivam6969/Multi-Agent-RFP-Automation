@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from settings import GROQ_API_KEY, PRICING_RULES, PricingRules
-from bu_rag import BuRagTool, get_bu_rag_tool
+from bu_agent import bu_query
 from state import AgentState
 
 
@@ -169,7 +169,6 @@ def _build_quote_payload(
 
 def _price_one_item(
     requirement: str,
-    bu_tool: BuRagTool,
     rules: PricingRules,
     user_query: str,
     api_key: Optional[str],
@@ -182,9 +181,7 @@ def _price_one_item(
         f"What is the unit price, packing, SAP code, and monthly availability "
         f"for products matching this requirement: {requirement}"
     )
-    price_answer = bu_tool.run_query(
-        price_query, temperature=0.0, api_key=api_key
-    )
+    price_answer = bu_query(price_query, temperature=0.0, api_key=api_key)
 
     unit_price = _extract_price(price_answer)
     qty = _extract_qty(user_query + " " + requirement)
@@ -228,7 +225,6 @@ def _price_one_item(
 
 def generate_initial_pricing(
     matched_items: List[Dict[str, Any]],
-    bu_tool: BuRagTool,
     rules: PricingRules,
     user_query: str,
     api_key: Optional[str],
@@ -239,7 +235,6 @@ def generate_initial_pricing(
     for item in matched_items:
         priced = _price_one_item(
             requirement=item["requirement"],
-            bu_tool=bu_tool,
             rules=rules,
             user_query=user_query,
             api_key=api_key,
@@ -364,7 +359,6 @@ def pricing_agent_node(state: AgentState) -> AgentState:
         )
         return state
 
-    bu_tool = get_bu_rag_tool()
     user_query = state.get("user_query", "")
 
     total_items = len(matched)
@@ -373,7 +367,6 @@ def pricing_agent_node(state: AgentState) -> AgentState:
         print(f"[PricingAgent] {i}/{total_items} Pricing: {item['requirement'][:60]}…")
     quoted_items, line_items = generate_initial_pricing(
         matched_items=matched,
-        bu_tool=bu_tool,
         rules=PRICING_RULES,
         user_query=user_query,
         api_key=api_key,

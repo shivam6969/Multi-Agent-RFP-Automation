@@ -25,7 +25,7 @@ from langgraph.graph import END, StateGraph
 from state import AgentState
 from settings import GROQ_API_KEY
 from llm import chat_completion
-from bu_rag import get_bu_rag_tool
+from bu_agent import bu_agent_node
 from rfp_agent import rfp_agent_node
 from matching_agent import matching_agent_node
 from pricing_agent import pricing_agent_node
@@ -72,17 +72,6 @@ def router_node(state: AgentState) -> AgentState:
 
     state["route"] = route
     print(f"[MasterAgent] Routed to: {route}")
-    return state
-
-
-# ─── BU agent node (thin wrapper) ─────────────────────────────────────────────
-
-def bu_agent_node(state: AgentState) -> AgentState:
-    """Answer the user query from the BU product catalog."""
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
-    query = state.get("user_query", "")
-    bu_tool = get_bu_rag_tool()
-    state["bu_answer"] = bu_tool.run_query(query, api_key=api_key)
     return state
 
 
