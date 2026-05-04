@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from settings import GROQ_API_KEY, PRICING_RULES, PricingRules
 from bu_agent import bu_query
+from llm import chat_completion
 from state import AgentState
 
 
@@ -163,6 +164,79 @@ def _build_quote_payload(
         "pricing_summary": summary,
         "line_items": line_items,
     }
+
+
+# ─── LLM-based requirement filter ────────────────────────────────────────────
+
+_PRICEABLE_FILTER_PROMPT = """
+You are a procurement assistant. Given a list of RFP requirements, classify
+each one as either "priceable" or "non-priceable".
+
+"priceable"     — The requirement refers to a physical product, component,
+                  material, or supply item that would appear as a line item
+                  in a vendor quote (e.g. switches, plates, sockets, cables).
+
+"non-priceable" — The requirement is a vendor qualification, compliance
+                  criterion, logistical condition, process obligation, or
+                  document submission (e.g. GST registration, delivery
+                  timelines, company profile, past experience, packaging rules).
+
+Return ONLY a JSON array. Each element must be:
+  {{"requirement": "<original text>", "priceable": true | false}}
+
+No markdown, no explanation. Pure JSON only.
+
+Requirements:
+{requirements_json}
+""".strip()
+
+
+def _filter_priceable_requirements(
+    matched_items: List[Dict[str, Any]],
+    api_key: Optional[str],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Use the LLM to split matched requirements into priceable vs non-priceable.
+    Returns (priceable_items, skipped_items).
+    """
+    import json as _json
+
+    reqs = [{"requirement": m["requirement"]} for m in matched_items]
+    raw = chat_completion(
+        system="You classify procurement requirements. Return JSON only.",
+        user=_PRICEABLE_FILTER_PROMPT.format(
+            requirements_json=_json.dumps(reqs, indent=2)
+        ),
+        temperature=0.0,
+        max_tokens=1000,
+        api_key=api_key,
+    )
+
+    # Parse LLM response
+    import re as _re
+    fence = _re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, _re.DOTALL)
+    if fence:
+        raw = fence.group(1)
+    else:
+        bracket = _re.search(r"\[.*\]", raw, _re.DOTALL)
+        if bracket:
+            raw = bracket.group(0)
+
+    try:
+        classifications = _json.loads(raw)
+        priceable_set = {
+            item["requirement"].strip().lower()
+            for item in classifications
+            if isinstance(item, dict) and item.get("priceable") is True
+        }
+    except Exception:
+        # Fallback: treat all as priceable if LLM parse fails
+        print("[PricingAgent] ⚠ LLM filter parse failed — pricing all matched items.")
+        return matched_items, []
+
+    priceable = [m for m in matched_items if m["requirement"].strip().lower() in priceable_set]
+    skipped   = [m for m in matched_items if m["requirement"].strip().lower() not in priceable_set]
+    return priceable, skipped
 
 
 # ─── Per-item pricing ─────────────────────────────────────────────────────────
@@ -361,19 +435,66 @@ def pricing_agent_node(state: AgentState) -> AgentState:
 
     user_query = state.get("user_query", "")
 
-    total_items = len(matched)
-    print(f"[PricingAgent] Pricing {total_items} matched items …")
-    for i, item in enumerate(matched, 1):
-        print(f"[PricingAgent] {i}/{total_items} Pricing: {item['requirement'][:60]}…")
+    # ── LLM-based filter: keep only product/supply requirements ──────────────
+    print(f"[PricingAgent] Running LLM filter on {len(matched)} matched requirements …")
+    priceable, skipped = _filter_priceable_requirements(matched, api_key)
+
+    print(f"\n[PricingAgent] ══ REQUIREMENT CLASSIFICATION ══════════════════════")
+    print(f"[PricingAgent]   Total matched  : {len(matched)}")
+    print(f"[PricingAgent]   ✅ Priceable   : {len(priceable)}")
+    for item in priceable:
+        print(f"[PricingAgent]     • {item['requirement'][:80]}")
+    print(f"[PricingAgent]   ⏭  Non-priceable (skipped): {len(skipped)}")
+    for item in skipped:
+        print(f"[PricingAgent]     • {item['requirement'][:80]}")
+    print(f"[PricingAgent] ════════════════════════════════════════════════════\n")
+
+    if not priceable:
+        state["pricing_report"] = (
+            "No priceable product requirements found among matched items "
+            "(all matched items were vendor qualification or compliance criteria)."
+        )
+        state["quoted_items"] = []
+        state["line_items"] = []
+        state["pricing_summary"] = {
+            "currency": PRICING_RULES.currency,
+            "margin_pct": PRICING_RULES.base_margin_pct,
+            "subtotal_base": 0.0,
+            "subtotal_ex_gst": 0.0,
+            "total_gst": 0.0,
+            "grand_total": 0.0,
+            "margin_value": 0.0,
+            "items_count": 0,
+        }
+        state["quote_payload"] = _build_quote_payload(
+            state=state, line_items=[], summary=state["pricing_summary"]
+        )
+        return state
+
+    total_items = len(priceable)
+    print(f"[PricingAgent] Pricing {total_items} priceable items …")
     quoted_items, line_items = generate_initial_pricing(
-        matched_items=matched,
+        matched_items=priceable,
         rules=PRICING_RULES,
         user_query=user_query,
         api_key=api_key,
     )
-    for priced in quoted_items:
-        price_str = f"₹{priced['catalog_cost_inr']}" if priced.get('catalog_cost_inr') else 'N/A'
-        print(f"[PricingAgent]   → Price: {price_str}")
+
+    print(f"\n[PricingAgent] ══ PRICING RESULTS ═════════════════════════════════")
+    for i, priced in enumerate(quoted_items, 1):
+        req_short = priced['requirement'][:55]
+        if priced.get('catalog_cost_inr') is not None:
+            print(f"[PricingAgent]   {i}. {req_short}")
+            print(f"[PricingAgent]      Catalog cost : ₹{priced['catalog_cost_inr']:.2f}")
+            print(f"[PricingAgent]      Selling price: ₹{priced['selling_price_inr']:.2f}  (margin {PRICING_RULES.base_margin_pct}%)")
+            if priced['volume_discount_pct']:
+                print(f"[PricingAgent]      Vol. discount: {priced['volume_discount_pct']}% → ₹{priced['net_price_inr']:.2f}")
+            print(f"[PricingAgent]      GST ({priced['gst_pct']}%)     : ₹{priced['gst_amount_inr']:.2f}")
+            print(f"[PricingAgent]      Price/unit   : ₹{priced['price_with_gst_inr']:.2f}")
+            print(f"[PricingAgent]      Qty × Line total: {priced['qty']} × ₹{priced['price_with_gst_inr']:.2f} = ₹{priced['line_total_inr']:.2f}")
+        else:
+            print(f"[PricingAgent]   {i}. {req_short} — ⚠ price not found")
+    print(f"[PricingAgent] ════════════════════════════════════════════════════\n")
 
     summary = _build_pricing_summary(
         line_items=line_items,

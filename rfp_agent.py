@@ -109,11 +109,20 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     # 1. Direct answer to the user query
     print("[RfpAgent] Answering user query from RFP …")
     state["rfp_answer"] = rfp_tool.run_query(query, api_key=api_key)
-    print("[RfpAgent] ✓ RFP answer ready.")
+    print(f"\n[RfpAgent] ══ RFP ANSWER ════════════════════════════════════════")
+    print(state["rfp_answer"])
+    print(f"[RfpAgent] ════════════════════════════════════════════════════\n")
 
     # 2. Structured requirements (always extracted for downstream agents)
     print("[RfpAgent] Extracting structured requirements …")
     state["rfp_requirements"] = _extract_requirements(rfp_tool, api_key)
-    print(f"[RfpAgent] ✓ Extracted {len(state['rfp_requirements'])} requirements.")
+    n = len(state["rfp_requirements"])
+    print(f"\n[RfpAgent] ══ EXTRACTED REQUIREMENTS ({n}) ═════════════════════")
+    for i, req in enumerate(state["rfp_requirements"], 1):
+        criticality = req.get("criticality", "?")
+        weight = req.get("weight", "?")
+        text = req.get("requirement", str(req))[:100]
+        print(f"[RfpAgent]   {i:>2}. [{criticality.upper():9}] (w={weight}) {text}")
+    print(f"[RfpAgent] ════════════════════════════════════════════════════\n")
 
     return state

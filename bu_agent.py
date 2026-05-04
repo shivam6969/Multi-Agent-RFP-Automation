@@ -52,6 +52,8 @@ def bu_agent_node(state: AgentState, config: Optional[BuRagConfig] = None) -> Ag
 
     print("[BuAgent] Answering user query from BU catalog …")
     state["bu_answer"] = bu_query(query, api_key=api_key, config=config)
-    print("[BuAgent] ✓ BU answer ready.")
+    print(f"\n[BuAgent] ══ BU CATALOG ANSWER ══════════════════════════════════")
+    print(state["bu_answer"])
+    print(f"[BuAgent] ════════════════════════════════════════════════════\n")
 
     return state

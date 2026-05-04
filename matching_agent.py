@@ -111,7 +111,11 @@ def matching_agent_node(state: AgentState) -> AgentState:
 
         print(f"[MatchingAgent] {i}/{total_reqs} Checking: {req[:60]}…")
         is_match, evidence = _assess_one(req, api_key)
-        print(f"[MatchingAgent]   → {'✅ MATCH' if is_match else '❌ GAP'}")
+        verdict = "✅ MATCH" if is_match else "❌ GAP"
+        print(f"[MatchingAgent]   → {verdict}")
+        evidence_preview = evidence.splitlines()[1].strip() if len(evidence.splitlines()) > 1 else ""
+        if evidence_preview:
+            print(f"[MatchingAgent]     Evidence: {evidence_preview[:120]}")
 
         matched_items.append(
             {
@@ -147,5 +151,9 @@ def matching_agent_node(state: AgentState) -> AgentState:
     state["matched_items"] = matched_items
     state["fulfillment_score"] = score
     state["fulfillment_report"] = "\n".join(report_lines)
+
+    print(f"\n[MatchingAgent] ══ FULFILLMENT REPORT ══════════════════════════")
+    print(state["fulfillment_report"])
+    print(f"[MatchingAgent] ════════════════════════════════════════════════\n")
 
     return state
