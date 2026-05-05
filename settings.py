@@ -61,8 +61,8 @@ class PricingRules:
     min_margin_pct: float = 0.0            # user cannot set below this
     max_margin_pct: float = 60.0           # user cannot set above this
     volume_discount_tiers: list = field(default_factory=lambda: [
-        {"min_qty": 1,    "max_qty": 99,    "discount_pct": 0.0},
-        {"min_qty": 100,  "max_qty": 499,   "discount_pct": 5.0},
+        {"min_qty": 1,    "max_qty": 199,    "discount_pct": 0.0},
+        {"min_qty": 200,  "max_qty": 499,   "discount_pct": 5.0},
         {"min_qty": 500,  "max_qty": 999,   "discount_pct": 8.0},
         {"min_qty": 1000, "max_qty": 99999, "discount_pct": 12.0},
     ])

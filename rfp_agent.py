@@ -16,12 +16,48 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
-from settings import GROQ_API_KEY, RFP_PDF_PATH
+from settings import GROQ_API_KEY
 from rfp_rag import RfpRagConfig, get_rfp_rag_tool
 from llm import chat_completion
 from state import AgentState
+
+_W = 72  # print banner width
+
+
+def _wrap(text: str, indent: int = 2) -> List[str]:
+    """Wrap text to fit inside the banner, yielding padded lines."""
+    width = _W - indent - 2  # 2 for ║ chars
+    lines = []
+    for raw_line in (text or "").splitlines() or [""]:
+        if not raw_line:
+            lines.append("")
+            continue
+        for i in range(0, max(len(raw_line), 1), width):
+            lines.append(raw_line[i : i + width])
+    return lines
+
+
+def _print_banner(title: str) -> None:
+    print(f"\n╔{'═' * (_W - 2)}╗")
+    print(f"║  {title:<{_W - 4}}║")
+    print(f"╠{'═' * (_W - 2)}╣")
+
+
+def _print_section(label: str) -> None:
+    print(f"║  {label:<{_W - 4}}║")
+    print(f"╠{'─' * (_W - 2)}╣")
+
+
+def _print_line(text: str, indent: int = 2) -> None:
+    pad = " " * indent
+    print(f"║{pad}{text:<{_W - indent - 2}}║")
+
+
+def _print_footer() -> None:
+    print(f"╚{'═' * (_W - 2)}╝\n")
 
 
 # ─── Requirement extraction ───────────────────────────────────────────────────
@@ -46,11 +82,6 @@ def _extract_requirements(
     rfp_tool,
     api_key: Optional[str],
 ) -> List[Dict[str, Any]]:
-    """
-    Pull the broadest possible context from the RFP, then ask the LLM to
-    return a structured JSON list of requirements.
-    """
-    # Use a broad query to get maximum coverage
     context = rfp_tool.build_context(
         "requirements eligibility deliverables mandatory technical", top_k=5
     )
@@ -62,21 +93,17 @@ def _extract_requirements(
         api_key=api_key,
     )
 
-    # Strip markdown fences properly (lstrip/rstrip work on char sets, not substrings)
-    import re as _re
-    fence_match = _re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, _re.DOTALL)
+    fence_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
     if fence_match:
         raw = fence_match.group(1)
     else:
-        # Try to find a raw JSON array
-        bracket_match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+        bracket_match = re.search(r"\[.*\]", raw, re.DOTALL)
         if bracket_match:
             raw = bracket_match.group(0)
 
     try:
         data = json.loads(raw)
         if isinstance(data, list):
-            # Filter out entries without a proper requirement string
             valid = [
                 item for item in data
                 if isinstance(item, dict)
@@ -87,10 +114,12 @@ def _extract_requirements(
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Fallback: return as plain strings with weight=1
-    # Filter out garbage lines (too short, just punctuation/braces)
     lines = [l.strip("- •\t").strip() for l in raw.splitlines() if l.strip()]
-    lines = [l for l in lines if len(l) > 10 and not l.startswith(("{", "}", "[", "]", '"weight"', '"criticality"'))]
+    lines = [
+        l for l in lines
+        if len(l) > 10
+        and not l.startswith(("{", "}", "[", "]", '"weight"', '"criticality"'))
+    ]
     return [{"requirement": l, "criticality": "medium", "weight": 2.0} for l in lines]
 
 
@@ -106,23 +135,32 @@ def rfp_agent_node(state: AgentState) -> AgentState:
 
     rfp_tool = get_rfp_rag_tool(RfpRagConfig())
 
-    # 1. Direct answer to the user query
     print("[RfpAgent] Answering user query from RFP …")
-    state["rfp_answer"] = rfp_tool.run_query(query, api_key=api_key)
-    print(f"\n[RfpAgent] ══ RFP ANSWER ════════════════════════════════════════")
-    print(state["rfp_answer"])
-    print(f"[RfpAgent] ════════════════════════════════════════════════════\n")
+    rfp_answer = rfp_tool.run_query(query, api_key=api_key)
+    state["rfp_answer"] = rfp_answer
 
-    # 2. Structured requirements (always extracted for downstream agents)
     print("[RfpAgent] Extracting structured requirements …")
-    state["rfp_requirements"] = _extract_requirements(rfp_tool, api_key)
-    n = len(state["rfp_requirements"])
-    print(f"\n[RfpAgent] ══ EXTRACTED REQUIREMENTS ({n}) ═════════════════════")
-    for i, req in enumerate(state["rfp_requirements"], 1):
-        criticality = req.get("criticality", "?")
-        weight = req.get("weight", "?")
-        text = req.get("requirement", str(req))[:100]
-        print(f"[RfpAgent]   {i:>2}. [{criticality.upper():9}] (w={weight}) {text}")
-    print(f"[RfpAgent] ════════════════════════════════════════════════════\n")
+    requirements = _extract_requirements(rfp_tool, api_key)
+    state["rfp_requirements"] = requirements
+
+    # ── Rich print output ──────────────────────────────────────────────────────
+    crit_icon = {"mandatory": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+
+    _print_banner("RFP AGENT — OUTPUT")
+    _print_line(f"Query: {query[:_W - 10]}")
+    _print_section(f"ANSWER")
+    for line in _wrap(rfp_answer):
+        _print_line(line)
+    print(f"╠{'═' * (_W - 2)}╣")
+    _print_section(f"EXTRACTED REQUIREMENTS  ({len(requirements)} total)")
+    for i, req in enumerate(requirements, 1):
+        crit = req.get("criticality", "medium")
+        icon = crit_icon.get(crit, "•")
+        wt   = req.get("weight", 1.0)
+        text = req.get("requirement", "")
+        _print_line(f"{i:>2}. {icon} [{crit.upper():<9}] wt={wt}  {text[:_W - 30]}", indent=2)
+        if len(text) > _W - 30:
+            _print_line(f"    ↳ …{text[_W - 30:]}", indent=2)
+    _print_footer()
 
     return state
