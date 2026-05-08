@@ -163,17 +163,18 @@ INSTRUCTIONS
 {format_instruction}
 
 Write the proposal as structured sections with clear headings.
-Use professional, concise language. Be specific with numbers and product names.
+Use professional, concise language but BE COMPREHENSIVE and DETAILED. Expand significantly on each section. The final document should be approximately 3 to 5 pages long. Be specific with numbers, product names, and capabilities.
+
 Include ALL of:
-  1. Executive Summary
-  2. Company / Vendor Overview (brief, professional)
-  3. Understanding of Requirements
-  4. Product Offering & Compliance
-  5. Fulfillment Capacity
-  6. Pricing Schedule (structured table format using the data above)
-  7. Delivery & Logistics Commitment
-  8. Eligibility & Compliance Declarations
-  9. Closing Statement & Call to Action
+  1. Executive Summary (At least 3-4 paragraphs highlighting key strengths and the value proposition)
+  2. Company / Vendor Overview (Provide a detailed, professional background of Havells India Ltd. as an authorized distributor, highlighting history and scale)
+  3. Understanding of Requirements (Thoroughly outline the scope and expectations derived from the RFP)
+  4. Product Offering & Compliance (Detail the products proposed, highlighting exact specifications, SAP codes, and how they meet or exceed standards)
+  5. Fulfillment Capacity (Provide assurance on stock levels and monthly availability)
+  6. Pricing Schedule (Leave a placeholder here, as structured table format using the data will be injected automatically)
+  7. Delivery & Logistics Commitment (Commit to firm delivery timelines, packaging norms, and shipping details)
+  8. Eligibility & Compliance Declarations (List necessary certifications, ISO standards, and legal compliance points)
+  9. Closing Statement & Call to Action (Professional sign-off)
 
 Format each section with:
   SECTION: <Title>
@@ -422,36 +423,65 @@ def _pricing_table(story: list, styles: Dict, state: AgentState) -> None:
     story.append(HRFlowable(width="100%", thickness=1, color=_GOLD, spaceAfter=3 * mm))
 
     headers = [
-        "Requirement", "Qty", "Base (₹)",
-        "Margin%", "Disc%", "Net (₹)", "GST%", "Total (₹)",
+        "Requirement", "SAP", "Pack", "Qty", "Base (₹)",
+        "Mrg%", "Disc%", "Net (₹)", "GST", "Total (₹)",
     ]
+    
+    has_discount = any(item.get("volume_discount_pct", 0) > 0 for item in line_items)
+    if not has_discount:
+        headers = [
+            "Requirement", "SAP", "Pack", "Qty", "Base (₹)",
+            "Mrg%", "Net (₹)", "GST", "Total (₹)",
+        ]
+        
     rows = [headers]
     for item in line_items:
-        req = textwrap.shorten(item.get("requirement", ""), width=35, placeholder="…")
-        rows.append(
-            [
-                req,
-                str(item.get("qty", "")),
-                f"{item.get('base_unit_price', 0):,.2f}",
-                f"{item.get('margin_pct', 0)}%",
-                f"{item.get('volume_discount_pct', 0)}%",
-                f"{item.get('net_unit_price', 0):,.2f}",
-                f"{item.get('gst_pct', 0)}%",
-                f"{item.get('line_total', 0):,.2f}",
-            ]
-        )
+        req = item.get("requirement", "")
+        # Hard truncate single-word strings since textwrap eats whole words
+        if len(req) > 36: req = req[:34] + "…"
+            
+        sap = item.get("sap_code", "N/A")
+        if len(sap) > 13: sap = sap[:11] + "…"
+            
+        pack = item.get("packing", "N/A")
+        if len(pack) > 9: pack = pack[:7] + "…"
+        
+        row = [
+            req,
+            sap,
+            pack,
+            str(item.get("qty", "")),
+            f"{item.get('base_unit_price', 0):,.2f}",
+            f"{item.get('margin_pct', 0)}%",
+        ]
+        
+        if has_discount:
+            row.append(f"{item.get('volume_discount_pct', 0)}%")
+            
+        row.extend([
+            f"{item.get('net_unit_price', 0):,.2f}",
+            f"{item.get('gst_pct', 0)}%",
+            f"{item.get('line_total', 0):,.2f}",
+        ])
+        
+        rows.append(row)
 
     # Totals row
     summary = state.get("pricing_summary") or {}
-    rows.append(
-        [
-            "GRAND TOTAL", "", "", "", "", "",
-            "",
-            f"{summary.get('grand_total', 0):,.2f}",
-        ]
-    )
+    total_row = [
+        "GRAND TOTAL", "", "", "", "", "", "", "",
+        f"{summary.get('grand_total', 0):,.2f}",
+    ]
+    if has_discount:
+        total_row.insert(6, "") # Add empty cell for the discount column
+        
+    rows.append(total_row)
 
-    col_w = [55 * mm, 12 * mm, 20 * mm, 15 * mm, 12 * mm, 20 * mm, 12 * mm, 22 * mm]
+    if has_discount:
+        col_w = [40 * mm, 23 * mm, 13 * mm, 9 * mm, 16 * mm, 11 * mm, 11 * mm, 16 * mm, 10 * mm, 22 * mm]
+    else:
+        col_w = [48 * mm, 23 * mm, 13 * mm, 9 * mm, 17 * mm, 11 * mm, 18 * mm, 10 * mm, 22 * mm]
+        
     tbl = Table(rows, colWidths=col_w, repeatRows=1)
     tbl.setStyle(
         TableStyle(

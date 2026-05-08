@@ -14,7 +14,7 @@ GROQ_API_KEY: str = "YOUR_GROQ_API_KEY_HERE"   # or set env var GROQ_API_KEY
 LLM_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 GEMINI_API_KEY: str = ""  # or set env var GEMINI_API_KEY
-GEMINI_MODEL: str = "gemini-2.5-flash"
+GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
 
 
 # ─── Embedding / Reranker models ───────────────────────────────────────────────
@@ -61,8 +61,8 @@ class PricingRules:
     min_margin_pct: float = 0.0            # user cannot set below this
     max_margin_pct: float = 60.0           # user cannot set above this
     volume_discount_tiers: list = field(default_factory=lambda: [
-        {"min_qty": 1,    "max_qty": 99,    "discount_pct": 0.0},
-        {"min_qty": 100,  "max_qty": 499,   "discount_pct": 5.0},
+        {"min_qty": 1,    "max_qty": 199,    "discount_pct": 0.0},
+        {"min_qty": 200,  "max_qty": 499,   "discount_pct": 5.0},
         {"min_qty": 500,  "max_qty": 999,   "discount_pct": 8.0},
         {"min_qty": 1000, "max_qty": 99999, "discount_pct": 12.0},
     ])

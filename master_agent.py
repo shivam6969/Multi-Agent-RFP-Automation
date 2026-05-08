@@ -77,7 +77,10 @@ def router_node(state: AgentState) -> AgentState:
         route = "full"
 
     state["route"] = route
-    print(f"[MasterAgent] Routed to: {route}")
+    print(f"\n[MasterAgent] ══ ROUTER DECISION ═══════════════════════════════")
+    print(f"[MasterAgent]   Query : {query[:120]}")
+    print(f"[MasterAgent]   Route : {route.upper()}")
+    print(f"[MasterAgent] ════════════════════════════════════════════════\n")
     return state
 
 
@@ -130,6 +133,9 @@ def synthesise_node(state: AgentState) -> AgentState:
     # If only one section, skip the LLM synthesis — just return it directly
     if len(sections) <= 1:
         state["final_response"] = sections[0] if sections else "No results."
+        print(f"\n[MasterAgent] ══ FINAL RESPONSE (direct, no synthesis) ════════")
+        print(state["final_response"])
+        print(f"[MasterAgent] ════════════════════════════════════════════════\n")
         return state
 
     api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
@@ -145,6 +151,9 @@ def synthesise_node(state: AgentState) -> AgentState:
         max_tokens=1200,
         api_key=api_key,
     )
+    print(f"\n[MasterAgent] ══ FINAL RESPONSE (synthesised) ═══════════════════")
+    print(state["final_response"])
+    print(f"[MasterAgent] ════════════════════════════════════════════════\n")
     return state
 
 
