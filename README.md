@@ -1,6 +1,6 @@
 # Multi-Agent RFP Automation
 
-An AI-powered pipeline that automates the end-to-end analysis of a **Request for Proposal (RFP)** document against a **business-unit product catalog**. The system classifies each user query, routes it through the relevant agents, and returns a synthesised procurement report — including gap analysis and a detailed pricing quote.
+An AI-powered pipeline that automates end-to-end analysis of a **Request for Proposal (RFP)** document against a **business-unit product catalog**. The system classifies each query, routes it through the relevant agents, and returns a synthesised procurement response — including gap analysis, pricing, and proposal-PDF generation.
 
 ---
 
@@ -15,6 +15,7 @@ An AI-powered pipeline that automates the end-to-end analysis of a **Request for
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Running Tests](#running-tests)
+- [Proposal Generation (Report Route)](#proposal-generation-report-route)
 - [Exporting Quotes](#exporting-quotes)
 - [Pricing Rules](#pricing-rules)
 - [Troubleshooting](#troubleshooting)
@@ -40,18 +41,20 @@ User Query
     │
     ▼
 ┌───────────┐
-│  Router   │  Classifies the query into one of five routes
+│  Router   │  Classifies the query into one of six routes
 └─────┬─────┘
       │
-      ├──── "rfp"   ──► RFP Agent ──────────────────────────────────► Synthesise ──► Response
+      ├──── "rfp"    ──► RFP Agent ─────────────────────────────────────────────► Synthesise ──► Response
       │
-      ├──── "bu"    ──► BU Agent ───────────────────────────────────► Synthesise ──► Response
+      ├──── "bu"     ──► BU Agent ──────────────────────────────────────────────► Synthesise ──► Response
       │
-      ├──── "match" ──► RFP Agent ──► Matching Agent ───────────────► Synthesise ──► Response
+      ├──── "match"  ──► RFP Agent ──► Matching Agent ──────────────────────────► Synthesise ──► Response
       │
-      ├──── "price" ──► RFP Agent ──► Matching Agent ──► Pricing ──► Synthesise ──► Response
+      ├──── "price"  ──► RFP Agent ──► Matching Agent ──► Pricing Agent ───────► Synthesise ──► Response
       │
-      └──── "full"  ──► RFP Agent ──► Matching Agent ──► Pricing ──► Synthesise ──► Response
+      ├──── "full"   ──► RFP Agent ──► Matching Agent ──► Pricing Agent ───────► Synthesise ──► Response
+      │
+      └──── "report" ──► RFP Agent ──► BU Agent ──► Matching Agent ──► Pricing Agent ──► Report Agent ──► Synthesise ──► Response
 ```
 
 All agents share a single `AgentState` TypedDict that flows through every node in the graph.
@@ -61,7 +64,7 @@ All agents share a single `AgentState` TypedDict that flows through every node i
 ## Agent Pipeline
 
 ### Router
-Classifies the incoming user query into one of five route labels using the LLM at `temperature=0.0` so routing is deterministic.
+Classifies the incoming user query into one of six route labels using the LLM at `temperature=0.0` so routing is deterministic.
 
 | Route | Meaning |
 |-------|---------|
@@ -70,14 +73,16 @@ Classifies the incoming user query into one of five route labels using the LLM a
 | `match` | Gap/fulfillment check — can our products meet the RFP requirements? |
 | `price` | Pricing or quotation request for matched RFP requirements |
 | `full` | Full pipeline: RFP analysis + matching + pricing |
+| `report` | Full proposal generation route that also produces a submission-ready vendor PDF |
 
 ### RFP Agent (`rfp_agent.py`)
 - Retrieves relevant chunks from the RFP PDF via FAISS and answers the user query.
 - Independently extracts a structured list of requirements `[{requirement, criticality, weight}]` for downstream agents.
 - Uses **PyMuPDF** to parse the PDF and **BAAI/bge-small-en** for embeddings.
 
-### BU Agent (`bu_rag.py`)
-- Answers catalog-only questions using a three-index hybrid search:
+### BU Agent (`bu_agent.py` + `bu_rag.py`)
+- `bu_agent.py` is the LangGraph node wrapper.
+- It answers catalog-only questions using a three-index hybrid search implemented in `bu_rag.py`:
   1. **Small chunks** — fine-grained color/category groups.
   2. **Large chunks** — full product range context.
   3. **JSON index** — structured product rows (SAP code, HSN code, price, packing, availability).
@@ -93,6 +98,11 @@ Classifies the incoming user query into one of five route labels using the LLM a
 - Outputs `quoted_items`, `line_items` (frontend-ready), `pricing_summary` (aggregate totals), and `quote_payload` (integration contract for PDF/quotation generation).
 - Supports **repricing without re-retrieval** via `reprice_with_margin()`.
 
+### Report Agent (`report_agent.py`)
+- Used in the `report` route after pricing to generate a complete proposal document.
+- Consumes all prior outputs (RFP analysis, BU answer, fulfillment, pricing) and drafts proposal text with **Google Gemini** (`gemini-2.5-flash` by default).
+- Renders a styled vendor proposal PDF via **reportlab** and writes the generated file path to `report_pdf_path`.
+
 ### Synthesise Node (`master_agent.py`)
 - Combines available outputs (RFP analysis, catalog answer, fulfillment report, pricing report) into a single structured response using the LLM.
 - If only one section is present, it is returned directly to avoid a redundant LLM call.
@@ -104,9 +114,11 @@ Classifies the incoming user query into one of five route labels using the LLM a
 ```
 .
 ├── master_agent.py          # LangGraph orchestrator and CLI entrypoint
+├── bu_agent.py              # BU node wrapper used by the graph
 ├── rfp_agent.py             # RFP RAG node — reads and analyses the RFP PDF
 ├── matching_agent.py        # Matching node — requirement vs. catalog gap analysis
 ├── pricing_agent.py         # Pricing node — quotes, margins, GST, volume discounts
+├── report_agent.py          # Proposal generator node — Gemini + PDF rendering
 ├── bu_rag.py                # BU product catalog RAG tool (hybrid search + rerank)
 ├── rfp_rag.py               # RFP PDF RAG tool (FAISS + section chunking)
 ├── llm.py                   # Thin Groq client wrapper used by all agents
@@ -120,6 +132,10 @@ Classifies the incoming user query into one of five route labels using the LLM a
 ├── Untitled document.pdf    # RFP document (replace with your own)
 ├── docs/
 │   └── pricing-agent.md     # Detailed pricing agent guide
+├── flow_charts/
+│   ├── master_agent_pipeline_flow.svg
+│   ├── report_agent_generation_flow_v2.svg
+│   └── ...                  # Additional architecture diagrams
 └── tests/
     └── test_pricing_agent.py  # Unit tests for repricing and CSV export
 ```
@@ -161,12 +177,14 @@ All configuration lives in **`settings.py`**. The most important settings are:
 |---------|---------|-------------|
 | `GROQ_API_KEY` | `"YOUR_GROQ_API_KEY_HERE"` | Groq API key — prefer the `GROQ_API_KEY` env var |
 | `LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq-hosted LLM |
+| `GEMINI_API_KEY` | `""` | Gemini API key used by `report_agent.py` for proposal generation |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model used for proposal text generation |
 | `RFP_PDF_PATH` | `"Untitled document.pdf"` | Path to your RFP PDF |
 | `BU_SMALL_CHUNKS_PATH` | `"havells_small_chunks (1).txt"` | Fine-grained catalog chunks |
 | `BU_LARGE_CHUNKS_PATH` | `"havells_large_chunks.txt"` | Broad catalog chunks |
 | `BU_JSON_PATH` | `"havelsdata.json"` | Structured catalog JSON |
 
-### Setting the API key
+### Setting API keys
 
 ```bash
 # macOS / Linux
@@ -177,6 +195,11 @@ $env:GROQ_API_KEY = "your-key-here"
 
 # Windows CMD
 set GROQ_API_KEY=your-key-here
+```
+
+```bash
+# Gemini (required for "report" route / proposal PDF generation)
+export GEMINI_API_KEY="your-gemini-key-here"
 ```
 
 Alternatively, paste your key directly into `settings.py` (not recommended for shared repositories).
@@ -208,6 +231,9 @@ python master_agent.py "Give me pricing and a quote for all matched RFP requirem
 
 # Full end-to-end analysis
 python master_agent.py "Full RFP analysis with gap report and pricing"
+
+# Generate full proposal PDF (report route)
+python master_agent.py "Generate the full vendor proposal PDF"
 ```
 
 ### Programmatic usage
@@ -230,6 +256,19 @@ python -m unittest tests/test_pricing_agent.py -v
 ```
 
 Expected output: **3 tests, all OK**.
+
+---
+
+## Proposal Generation (Report Route)
+
+When the router classifies a query as `report`, the pipeline runs:
+
+`RFP Agent → BU Agent → Matching Agent → Pricing Agent → Report Agent → Synthesise`
+
+The report agent:
+- Calls Gemini to generate structured proposal text.
+- Builds a styled vendor proposal PDF with reportlab.
+- Stores the generated file path in state (`report_pdf_path`) and includes it in the final response.
 
 ---
 
@@ -290,6 +329,7 @@ updated_items, summary = reprice_with_margin(line_items, new_margin_pct=15.0, ru
 |---------|-----|
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` in the active virtual environment |
 | `ValueError: GROQ_API_KEY is not set` | Export `GROQ_API_KEY` in the same terminal session |
+| `GEMINI_API_KEY is not set` | Export `GEMINI_API_KEY` before running proposal/report generation queries |
 | `FileNotFoundError` for PDF or catalog files | Check `RFP_PDF_PATH` and BU paths in `settings.py` match the actual file names |
 | Slow first run | Normal — embedding and reranker models are downloaded and cached on first use |
 | Groq API errors | Verify the key is valid at [console.groq.com](https://console.groq.com/) and that you have remaining quota |
