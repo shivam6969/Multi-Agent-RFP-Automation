@@ -35,7 +35,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from settings import GROQ_API_KEY, PRICING_RULES, PricingRules
+from settings import OPENROUTER_API_KEY, PRICING_RULES, PricingRules
 from bu_agent import bu_query
 from llm import chat_completion
 from state import AgentState
@@ -514,7 +514,7 @@ def pricing_agent_node(state: AgentState) -> AgentState:
     Reads matched_items + user_query → writes quoted_items, line_items,
     pricing_summary, quote_payload, pricing_report.
     """
-    api_key    = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key    = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
     user_query = state.get("user_query", "")
 
     all_matched = [m for m in state.get("matched_items", []) if m.get("matched")]

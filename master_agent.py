@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import os
 import sys
+import webbrowser
 from langgraph.graph import END, StateGraph
 
 from state import AgentState
-from settings import GROQ_API_KEY
+from settings import OPENROUTER_API_KEY
 from llm import chat_completion
 from bu_agent import bu_agent_node
 from rfp_agent import rfp_agent_node
@@ -63,7 +64,7 @@ User query: {query}
 def router_node(state: AgentState) -> AgentState:
     """Classify the user query and write state['route']."""
     query = state.get("user_query", "")
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
 
     raw = chat_completion(
         system="You are a precise query classifier. Reply with one word only.",
@@ -138,7 +139,7 @@ def synthesise_node(state: AgentState) -> AgentState:
         print(f"[MasterAgent] ════════════════════════════════════════════════\n")
         return state
 
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
     query = state.get("user_query", "")
 
     state["final_response"] = chat_completion(
@@ -307,6 +308,17 @@ def run(query: str) -> str:
     return result.get("final_response", result.get("error", "No output produced."))
 
 
+def _open_pdf(path: str) -> None:
+    """Open a generated PDF with the default system viewer."""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        os.startfile(path)
+    except AttributeError:
+        pdf_url = "file:///" + os.path.abspath(path).replace("\\", "/")
+        webbrowser.open(pdf_url)
+
+
 # ─── CLI entrypoint ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -324,9 +336,15 @@ if __name__ == "__main__":
     print(f"  Query: {user_query}")
     print(f"{'='*70}\n")
 
-    response = run(user_query)
+    graph = get_graph()
+    result = graph.invoke({"user_query": user_query})
+    response = result.get("final_response", result.get("error", "No output produced."))
 
     print(f"\n{'='*70}")
     print("  FINAL RESPONSE")
     print(f"{'='*70}\n")
     print(response)
+
+    report_pdf_path = result.get("report_pdf_path")
+    if report_pdf_path:
+        _open_pdf(report_pdf_path)

@@ -19,7 +19,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from settings import GROQ_API_KEY
+from settings import OPENROUTER_API_KEY
 from rfp_rag import RfpRagConfig, get_rfp_rag_tool
 from llm import chat_completion
 from state import AgentState
@@ -130,7 +130,7 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     LangGraph node.
     Reads user_query, writes rfp_answer and rfp_requirements.
     """
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
     query = state.get("user_query", "")
 
     rfp_tool = get_rfp_rag_tool(RfpRagConfig())

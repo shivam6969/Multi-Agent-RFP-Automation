@@ -1,4 +1,4 @@
-groq
+openai
 langgraph
 langchain-core
 sentence-transformers

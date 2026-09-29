@@ -160,7 +160,7 @@ All configuration lives in **`settings.py`**. The most important settings are:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `GROQ_API_KEY` | `"YOUR_GROQ_API_KEY_HERE"` | Groq API key — prefer the `GROQ_API_KEY` env var |
-| `LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq-hosted LLM |
+| `LLM_MODEL` | `meta-llama/llama-prompt-guard-2-22m` | Groq-hosted LLM |
 | `RFP_PDF_PATH` | `"Untitled document.pdf"` | Path to your RFP PDF |
 | `BU_SMALL_CHUNKS_PATH` | `"havells_small_chunks (1).txt"` | Fine-grained catalog chunks |
 | `BU_LARGE_CHUNKS_PATH` | `"havells_large_chunks.txt"` | Broad catalog chunks |

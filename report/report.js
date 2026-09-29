@@ -475,7 +475,7 @@ const ch4 = [
     { justify: true }
   ),
   body("Key configuration groups:"),
-  bullet("LLM configuration: GROQ_API_KEY, LLM_MODEL (meta-llama/llama-4-scout-17b-16e-instruct), GEMINI_API_KEY"),
+  bullet("LLM configuration: GROQ_API_KEY, LLM_MODEL (meta-llama/llama-prompt-guard-2-22m), GEMINI_API_KEY"),
   bullet("Embedding models: BU_EMBED_MODEL (BAAI/bge-small-en-v1.5), BU_RERANK_MODEL (BAAI/bge-reranker-base), RFP_EMBED_MODEL (BAAI/bge-small-en)"),
   bullet("Data paths: BU_SMALL_CHUNKS_PATH, BU_LARGE_CHUNKS_PATH, BU_JSON_PATH, RFP_PDF_PATH"),
   bullet("Retrieval knobs: top-k values for each index and reranking"),
