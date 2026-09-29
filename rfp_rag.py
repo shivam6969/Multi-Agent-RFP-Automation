@@ -26,7 +26,7 @@ from sentence_transformers import SentenceTransformer
 from settings import (
     LLM_MODEL,
     RFP_EMBED_MODEL,
-    RFP_MAX_CHUNK_LENGTH,
+    RFP_MAX_CHUNK_LENGTH,      
     RFP_PDF_PATH,
     RFP_TOP_K,
 )

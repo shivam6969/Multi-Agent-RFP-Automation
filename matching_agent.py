@@ -10,7 +10,7 @@ Matching Agent checks each one against the business-unit catalog (via
 BuRagTool) and produces:
 
   - state["matched_items"]      — per-requirement match detail
-  - state["fulfillment_score"]  — weighted percentage 0–100
+  - state["fulfillment_score"]  — weighted percentage 0-100
   - state["fulfillment_report"] — human-readable summary
 
 The agent is a plain function that receives and returns AgentState,
@@ -32,7 +32,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from settings import GROQ_API_KEY
+from settings import OPENROUTER_API_KEY
 from bu_agent import bu_query
 from llm import chat_completion
 from state import AgentState
@@ -136,7 +136,12 @@ def _assess_one(
         f"Requirement: {requirement}"
     )
     answer = bu_query(prompt, temperature=0.0, api_key=api_key)
-    first = answer.strip().splitlines()[0].strip().lower()
+    lines = answer.strip().splitlines()
+    if not lines:
+        # OpenRouter returned an empty response — treat as NO match (safe default)
+        print("[MatchingAgent] ⚠ Empty LLM response for requirement — defaulting to NO.")
+        return False, "No response from model."
+    first = lines[0].strip().lower()
     return first.startswith("yes"), answer.strip()
 
 
@@ -175,7 +180,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
     Reads rfp_requirements → writes matched_items, fulfillment_score,
     fulfillment_report.
     """
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
 
     requirements = _parse_requirements(state.get("rfp_requirements", []))
     if not requirements:

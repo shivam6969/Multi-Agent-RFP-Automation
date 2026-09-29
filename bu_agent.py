@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from settings import GROQ_API_KEY
+from settings import OPENROUTER_API_KEY
 from bu_rag import BuRagConfig, get_bu_rag_tool
 from state import AgentState
 
@@ -61,7 +61,7 @@ def bu_agent_node(state: AgentState, config: Optional[BuRagConfig] = None) -> Ag
     LangGraph node.
     Reads user_query, writes bu_answer.
     """
-    api_key = os.environ.get("GROQ_API_KEY") or GROQ_API_KEY
+    api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
     query = state.get("user_query", "")
 
     print("[BuAgent] Answering user query from BU catalog …")

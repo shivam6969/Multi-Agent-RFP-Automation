@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import webbrowser
 
 from report_agent import report_agent_node
 
@@ -9,6 +10,16 @@ from report_agent import report_agent_node
 def _prompt(label: str, fallback: str) -> str:
     val = input(f"{label} (leave blank for sample): ").strip()
     return val if val else fallback
+
+
+def _open_pdf(path: str) -> None:
+    if not path or not os.path.exists(path):
+        return
+    try:
+        os.startfile(path)
+    except AttributeError:
+        pdf_url = "file:///" + os.path.abspath(path).replace("\\", "/")
+        webbrowser.open(pdf_url)
 
 
 def main() -> int:
@@ -48,7 +59,10 @@ def main() -> int:
 
     print("\nREPORT OUTPUT")
     print("-" * 60)
-    print(out.get("report_pdf_path", "No PDF path"))
+    pdf_path = out.get("report_pdf_path", "No PDF path")
+    print(pdf_path)
+    if isinstance(pdf_path, str):
+        _open_pdf(pdf_path)
 
     return 0
 
