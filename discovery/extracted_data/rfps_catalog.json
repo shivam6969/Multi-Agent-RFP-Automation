@@ -1,0 +1,154 @@
+[
+  {
+    "id": "rfp_gem2024b123456",
+    "keyword": "lt cable",
+    "bid_title": "GEM/2024/B/123456 - Supply of LT Cables",
+    "pdf_url": "https://example.com/rfp1.pdf",
+    "filename": "GEM_2024_B_123456.pdf",
+    "status": "pending",
+    "timestamp": "2024-04-29T10:30:00",
+    "analysis": {
+      "start_time": [
+        "10:30 AM"
+      ],
+      "end_time": [
+        "03:30 PM"
+      ],
+      "location": [
+        "Head Office, New Delhi"
+      ],
+      "contacts": [
+        "Mr. Rajesh Kumar - 9876543210",
+        "email@gem.gov.in"
+      ],
+      "products": [
+        "LT Cable - Aluminium, 2.5 SQ MM, 90M Length"
+      ],
+      "quantity": [
+        "5000"
+      ],
+      "financial_info": [
+        "Estimated Cost: Rs. 25,00,000/-",
+        "Budget: 25 lakh"
+      ],
+      "bid_details": [
+        "GEM/2024/B/123456",
+        "Procurement Type: Buy"
+      ]
+    }
+  },
+  {
+    "id": "rfp_gem2024b234567",
+    "keyword": "transformer",
+    "bid_title": "GEM/2024/B/234567 - Distribution Transformers",
+    "pdf_url": "https://example.com/rfp2.pdf",
+    "filename": "GEM_2024_B_234567.pdf",
+    "status": "pending",
+    "timestamp": "2024-04-29T09:00:00",
+    "analysis": {
+      "start_time": [
+        "09:00 AM"
+      ],
+      "end_time": [
+        "02:00 PM"
+      ],
+      "location": [
+        "Regional Office, Mumbai"
+      ],
+      "contacts": [
+        "Ms. Priya Singh - 8765432109",
+        "procurement@company.com"
+      ],
+      "products": [
+        "Distribution Transformer - 100 KVA, Oil Cooled"
+      ],
+      "quantity": [
+        "150"
+      ],
+      "financial_info": [
+        "Budget: Rs. 50,00,000/-",
+        "Estimated value: 50 lakh"
+      ],
+      "bid_details": [
+        "GEM/2024/B/234567",
+        "Category: Electrical"
+      ]
+    }
+  },
+  {
+    "id": "rfp_gem2024b345678",
+    "keyword": "switchgear",
+    "bid_title": "GEM/2024/B/345678 - MV Switchgear Supply",
+    "pdf_url": "https://example.com/rfp3.pdf",
+    "filename": "GEM_2024_B_345678.pdf",
+    "status": "pending",
+    "timestamp": "2024-04-29T08:30:00",
+    "analysis": {
+      "start_time": [
+        "08:30 AM"
+      ],
+      "end_time": [
+        "04:30 PM"
+      ],
+      "location": [
+        "Bangalore Tech Park, Bangalore"
+      ],
+      "contacts": [
+        "Mr. Vikram Patel - 7654321098",
+        "tender@grid.com"
+      ],
+      "products": [
+        "MV Switchgear - 33 KV, Vacuum Type"
+      ],
+      "quantity": [
+        "85"
+      ],
+      "financial_info": [
+        "Budget: Rs. 75,00,000/-",
+        "Estimated: 75 lakh rupees"
+      ],
+      "bid_details": [
+        "GEM/2024/B/345678",
+        "Type: Procurement"
+      ]
+    }
+  },
+  {
+    "id": "rfp_gem2024b456789",
+    "keyword": "motor",
+    "bid_title": "GEM/2024/B/456789 - Industrial Motors",
+    "pdf_url": "https://example.com/rfp4.pdf",
+    "filename": "GEM_2024_B_456789.pdf",
+    "status": "pending",
+    "timestamp": "2024-04-29T11:00:00",
+    "analysis": {
+      "start_time": [
+        "11:00 AM"
+      ],
+      "end_time": [
+        "05:00 PM"
+      ],
+      "location": [
+        "Chennai Industrial Zone, Chennai"
+      ],
+      "contacts": [
+        "Mr. Ashok Kumar - 6543210987",
+        "bids@motors.com"
+      ],
+      "products": [
+        "3-Phase Motor - 10 HP, 1440 RPM"
+      ],
+      "quantity": [
+        "200"
+      ],
+      "financial_info": [
+        "Budget: Rs. 35,00,000/-",
+        "Amount: 35 lakh"
+      ],
+      "bid_details": [
+        "GEM/2024/B/456789",
+        "Category: Motors"
+      ]
+    }
+  }
+]

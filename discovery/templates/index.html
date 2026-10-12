@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RFP Information Extractor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .result-card {
+            margin-bottom: 20px;
+        }
+        .section-header {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .extracted-text {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="text-center mb-4">RFP Information Extractor</h1>
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5>Extract Information from RFP PDF</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="pdfUrl" class="form-label">PDF URL</label>
+                            <input type="url" class="form-control" id="pdfUrl" placeholder="Enter PDF URL">
+                        </div>
+                        <div class="mb-3">
+                            <label for="filename" class="form-label">Filename (optional)</label>
+                            <input type="text" class="form-control" id="filename" placeholder="e.g., rfp_123.pdf">
+                        </div>
+                        <button id="extractBtn" class="btn btn-primary">Extract Information</button>
+                        <a href="/saved" class="btn btn-secondary">View Saved Analyses</a>
+                    </div>
+                </div>
+
+                <div id="loading" class="text-center" style="display: none;">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Extracting information from PDF...</p>
+                </div>
+
+                <div id="results" style="display: none;">
+                    <h3>Extracted Information</h3>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card result-card">
+                                <div class="card-header section-header">
+                                    <h6 class="mb-0">Deadlines</h6>
+                                </div>
+                                <div class="card-body">
+                                    <ul id="deadlines" class="list-group list-group-flush"></ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card result-card">
+                                <div class="card-header section-header">
+                                    <h6 class="mb-0">Contact Information</h6>
+                                </div>
+                                <div class="card-body">
+                                    <ul id="contacts" class="list-group list-group-flush"></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card result-card">
+                                <div class="card-header section-header">
+                                    <h6 class="mb-0">Requirements</h6>
+                                </div>
+                                <div class="card-body">
+                                    <ul id="requirements" class="list-group list-group-flush"></ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card result-card">
+                                <div class="card-header section-header">
+                                    <h6 class="mb-0">Financial Information</h6>
+                                </div>
+                                <div class="card-body">
+                                    <ul id="financial" class="list-group list-group-flush"></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card result-card">
+                        <div class="card-header section-header">
+                            <h6 class="mb-0">Full Extracted Text</h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="fullText" class="extracted-text"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('extractBtn').addEventListener('click', async () => {
+            const pdfUrl = document.getElementById('pdfUrl').value;
+            const filename = document.getElementById('filename').value || 'extracted.pdf';
+
+            if (!pdfUrl) {
+                alert('Please enter a PDF URL');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+
+            try {
+                const response = await fetch('/extract', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        pdf_url: pdfUrl,
+                        filename: filename
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayResults(data.analysis);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+
+        function displayResults(analysis) {
+            // Clear previous results
+            document.getElementById('deadlines').innerHTML = '';
+            document.getElementById('contacts').innerHTML = '';
+            document.getElementById('requirements').innerHTML = '';
+            document.getElementById('financial').innerHTML = '';
+            document.getElementById('fullText').textContent = '';
+
+            // Display deadlines
+            if (analysis.deadlines && analysis.deadlines.length > 0) {
+                analysis.deadlines.forEach(deadline => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item';
+                    li.textContent = deadline;
+                    document.getElementById('deadlines').appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'list-group-item text-muted';
+                li.textContent = 'No deadlines found';
+                document.getElementById('deadlines').appendChild(li);
+            }
+
+            // Display contacts
+            if (analysis.contact_info && analysis.contact_info.length > 0) {
+                analysis.contact_info.forEach(contact => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item';
+                    li.textContent = contact;
+                    document.getElementById('contacts').appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'list-group-item text-muted';
+                li.textContent = 'No contact information found';
+                document.getElementById('contacts').appendChild(li);
+            }
+
+            // Display requirements
+            if (analysis.requirements && analysis.requirements.length > 0) {
+                analysis.requirements.forEach(req => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item';
+                    li.textContent = req;
+                    document.getElementById('requirements').appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'list-group-item text-muted';
+                li.textContent = 'No requirements found';
+                document.getElementById('requirements').appendChild(li);
+            }
+
+            // Display financial info
+            if (analysis.financial_info && analysis.financial_info.length > 0) {
+                analysis.financial_info.forEach(fin => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item';
+                    li.textContent = fin;
+                    document.getElementById('financial').appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'list-group-item text-muted';
+                li.textContent = 'No financial information found';
+                document.getElementById('financial').appendChild(li);
+            }
+
+            // Display full text
+            document.getElementById('fullText').textContent = analysis.full_text || 'No text extracted';
+
+            // Show results
+            document.getElementById('results').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

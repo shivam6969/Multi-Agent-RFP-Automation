@@ -1,0 +1,30 @@
+{
+  "filename": "sample_rfp.pdf",
+  "timestamp": "2024-01-01 12:00:00",
+  "analysis": {
+    "full_text": "\n    TENDER NOTICE\n\n    Tender No: GEM/2024/B/123456\n    Deadline for Submission: 15th March 2024\n    Contact Person: Mr. John Doe\n    Email: procurement@company.com\n    Phone: +91-1234567890\n\n    Technical Requirements:\n    - Minimum 5 years experience in electrical works\n    - Valid electrical contractor license\n    - ISO 9001 certification mandatory\n\n    Estimated Cost: Rs. 50,00,000/-\n    Budget: 5 lakh rupees\n\n    Bid Submission: Online through GEM portal\n    ",
+    "deadlines": [
+      "for Submission: 15th March 2024",
+      "Online through GEM portal"
+    ],
+    "requirements": [
+      "Technical Requirements:",
+      "- Valid electrical contractor license",
+      "- ISO 9001 certification mandatory"
+    ],
+    "contact_info": [
+      "Person: Mr. John Doe",
+      "procurement@company.com",
+      "+91-1234567890",
+      "Mr. John Doe"
+    ],
+    "financial_info": [
+      "Rs. 50,00,000/-",
+      "5 lakh rupees",
+      "Rs. 50,00,000"
+    ],
+    "bid_details": [
+      "2024/B/123456"
+    ]
+  }
+}
