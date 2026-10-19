@@ -26,9 +26,11 @@ class AgentState(TypedDict, total=False):
     bu_answer: str                         # direct answer from BU RAG
 
     # ── Matching Agent outputs ────────────────────────────────────────────────
-    matched_items: List[Dict[str, Any]]    # [{product, evidence, matched: bool}]
-    fulfillment_score: float               # 0–100
+    matched_items: List[Dict[str, Any]]    # [{id, requirement, type, status, matched, product_id,
+                                           #   sap_code, match_score, confidence, alternatives, …}]
+    fulfillment_score: float               # 0–100, weighted share of product items with a product
     fulfillment_report: str                # human-readable match summary
+    match_summary: Dict[str, Any]          # counts: matched / needs_review / gaps / compliance_pending
 
     # ── Pricing inputs (set by the user; all optional) ────────────────────────
     margin_pct: float                      # chosen margin; default PricingRules.base_margin_pct
@@ -52,5 +54,6 @@ class AgentState(TypedDict, total=False):
     # ── Control / routing ─────────────────────────────────────────────────────
     route: str                             # "rfp" | "bu" | "match" | "price" | "full" | "report"
     error: Optional[str]                   # populated if any node fails
+    warnings: List[str]                    # non-fatal problems to show the user
 
     

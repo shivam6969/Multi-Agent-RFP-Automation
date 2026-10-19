@@ -68,6 +68,24 @@ BU_RERANK_TOP_K: int = 5
 
 RFP_TOP_K: int = 3
 
+# Requirement extraction reads the whole RFP in windows of about this many
+# characters (each window is one LLM call; windows run in parallel).
+RFP_EXTRACT_WINDOW_CHARS: int = 12000
+
+
+# ─── Matching ─────────────────────────────────────────────────────────────────
+
+# Reranker relevance (0-1) of a catalogue candidate. Calibrated on the Havells
+# catalogue: real products score 0.55-0.99, unrelated items (cables, hoses,
+# certificates) score 0.00.
+MATCH_TOP_K: int = 5                    # candidates shown to the LLM / as alternatives
+MATCH_MIN_CANDIDATE_SCORE: float = 0.05 # below this a candidate is ignored → gap
+MATCH_HIGH_CONFIDENCE: float = 0.90     # at/above: "high", status "matched"
+MATCH_MEDIUM_CONFIDENCE: float = 0.50   # at/above: "medium"; below: "low" (both need review)
+
+# Parallel LLM calls (matching, extraction). Keep low for free-tier rate limits.
+LLM_MAX_CONCURRENCY: int = int(os.environ.get("LLM_MAX_CONCURRENCY", "4"))
+
 
 # ─── Cache ────────────────────────────────────────────────────────────────────
 

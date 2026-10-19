@@ -5,37 +5,46 @@ Matching Agent — LangGraph node
 
 Responsibility
 --------------
-Given a list of RFP requirements (from state["rfp_requirements"]), the
-Matching Agent checks each one against the business-unit catalog (via
-BuRagTool) and produces:
+Given the RFP requirements (state["rfp_requirements"]), find the catalogue
+product that fulfils each one:
 
-  - state["matched_items"]      — per-requirement match detail
-  - state["fulfillment_score"]  — weighted percentage 0-100
-  - state["fulfillment_report"] — human-readable summary
+  1. Classify  — one batched LLM call tags each requirement "product_sku"
+                 (a physical item we would quote) or "compliance"
+                 (eligibility, documents, delivery terms, …).
+  2. Atomise   — one batched LLM call splits compound product requirements
+                 ("16A and 25A switches") into single-product items.
+  3. Match     — per item, IN PARALLEL: catalogue search with relevance
+                 scores, then one LLM call picks a candidate by id
+                 (see product_matcher.py). Unrelated items become gaps
+                 without an LLM call.
 
-The agent is a plain function that receives and returns AgentState,
-making it trivially usable as a LangGraph node.
+Outputs
+  - state["matched_items"]      one dict per item (see _product_item())
+  - state["fulfillment_score"]  weighted % of product items with a product
+  - state["fulfillment_report"] human-readable summary
+  - state["match_summary"]      counts for the UI
 
-SKU classification
-------------------
-Before any RAG queries are run, a single batched LLM call classifies every
-requirement as "product_sku" (priceable physical item) or "compliance"
-(vendor qualification, delivery term, document obligation, etc.).
-This removes the need for keyword heuristics and costs just one API call
-for the entire requirement list.
+Compliance requirements cannot be checked against a product catalogue, so
+they are listed with status "needs_review" for a human to confirm, and are
+not part of the automatic score.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Literal, Optional
 
-from settings import OPENROUTER_API_KEY
-from bu_agent import bu_query
-from llm import chat_completion
+from pydantic import BaseModel
+
+from llm_json import LLMOutputError, chat_json
+from product_matcher import Candidate, atomise, confidence_band, find_candidates, pick_product
+from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY
 from state import AgentState
+
+logger = logging.getLogger(__name__)
 
 _W = 72  # banner width
 
@@ -53,7 +62,7 @@ def _wrap(text: str, width: int = _W - 6) -> List[str]:
     return lines
 
 
-# ─── LLM-based SKU classifier (single batched call) ──────────────────────────
+# ─── Step 1: classify (single batched call) ───────────────────────────────────
 
 _CLASSIFY_PROMPT = """
 You are a procurement assistant. Classify each requirement below as either
@@ -66,114 +75,155 @@ You are a procurement assistant. Classify each requirement below as either
 "compliance"   — A vendor qualification, eligibility criterion, logistical
                  condition, documentation obligation, or process requirement.
                  Examples: GST registration, delivery timelines, company profile,
-                 past experience, packaging rules, supply capacity demonstration.
+                 past experience, packaging rules, supply capacity demonstration,
+                 "submit a price list".
 
-Return ONLY a JSON array. Each element:
-  {{"requirement": "<original text>", "type": "product_sku" | "compliance"}}
-
-No markdown. No explanation. Pure JSON only.
+Return ONLY a JSON array with one entry per input, in the same order:
+  [{{"index": <input index>, "type": "product_sku" | "compliance"}}, ...]
 
 Requirements:
 {requirements_json}
 """.strip()
 
 
+class _Classified(BaseModel):
+    index: int
+    type: Literal["product_sku", "compliance"]
+
+
 def _classify_requirements_llm(
     requirements: List[Dict[str, Any]],
     api_key: Optional[str],
-) -> Dict[str, str]:
+) -> List[str]:
     """
-    Single LLM call that returns {requirement_text -> "product_sku"|"compliance"}
-    for every item in the list. Fallback: all treated as "product_sku" (safe).
+    One LLM call → "product_sku" | "compliance" per requirement, in order.
+    Fallback: every requirement is treated as a product (it will simply be
+    reported as a gap if the catalogue has nothing similar).
     """
-    reqs_json = json.dumps([{"requirement": r["requirement"]} for r in requirements], indent=2)
-    raw = chat_completion(
-        system="You classify procurement requirements. Return JSON only.",
-        user=_CLASSIFY_PROMPT.format(requirements_json=reqs_json),
-        temperature=0.0,
-        max_tokens=1500,
-        api_key=api_key,
+    payload = json.dumps(
+        [{"index": i, "requirement": r["requirement"]} for i, r in enumerate(requirements)],
+        indent=1,
     )
-
-    fence = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
-    if fence:
-        raw = fence.group(1)
-    else:
-        bracket = re.search(r"\[.*\]", raw, re.DOTALL)
-        if bracket:
-            raw = bracket.group(0)
-
     try:
-        data = json.loads(raw)
-        if isinstance(data, list):
-            return {
-                item["requirement"].strip(): item.get("type", "product_sku")
-                for item in data
-                if isinstance(item, dict) and "requirement" in item
-            }
-    except Exception:
-        pass
-
-    print("[MatchingAgent] ⚠ LLM classification parse failed — treating all as product_sku.")
-    return {r["requirement"]: "product_sku" for r in requirements}
-
-
-# ─── RAG-based fulfillment check ─────────────────────────────────────────────
-
-def _assess_one(
-    requirement: str,
-    api_key: Optional[str],
-) -> Tuple[bool, str]:
-    """
-    Ask the BU RAG whether the catalog can fulfil *requirement*.
-    Returns (is_match, evidence_text).
-    """
-    prompt = (
-        "Based only on the business catalog context, "
-        "can the business fulfil this RFP requirement?\n"
-        "Reply with 'YES' or 'NO' on the first line, "
-        "then one short evidence sentence.\n\n"
-        f"Requirement: {requirement}"
-    )
-    answer = bu_query(prompt, temperature=0.0, api_key=api_key)
-    lines = answer.strip().splitlines()
-    if not lines:
-        # OpenRouter returned an empty response — treat as NO match (safe default)
-        print("[MatchingAgent] ⚠ Empty LLM response for requirement — defaulting to NO.")
-        return False, "No response from model."
-    first = lines[0].strip().lower()
-    return first.startswith("yes"), answer.strip()
+        result = chat_json(
+            system="You classify procurement requirements. Return JSON only.",
+            user=_CLASSIFY_PROMPT.format(requirements_json=payload),
+            schema=List[_Classified],
+            temperature=0.0,
+            max_tokens=1500,
+            api_key=api_key,
+        )
+        by_index = {c.index: c.type for c in result}
+    except LLMOutputError:
+        logger.warning("Classification failed; treating all requirements as products.")
+        by_index = {}
+    return [by_index.get(i, "product_sku") for i in range(len(requirements))]
 
 
 # ─── Input normaliser ─────────────────────────────────────────────────────────
 
 def _parse_requirements(raw: Any) -> List[Dict[str, Any]]:
-    """Normalise RFP-agent output into [{requirement, weight}, …]."""
-    if isinstance(raw, list):
-        out = []
-        for item in raw:
-            if isinstance(item, dict) and "requirement" in item:
-                parsed = {
-                    "requirement": str(item["requirement"]).strip(),
-                    "weight": float(item.get("weight", 1.0)),
-                }
-                qty = item.get("quantity", item.get("qty"))
-                if qty is not None:
-                    parsed["qty"] = qty
-                out.append(parsed)
-        if out:
-            return out
-
+    """Normalise RFP-agent output into [{id, requirement, weight, criticality, qty?}]."""
     if isinstance(raw, str):
         try:
-            parsed = json.loads(raw)
-            return _parse_requirements(parsed)
+            return _parse_requirements(json.loads(raw))
         except (json.JSONDecodeError, TypeError):
-            pass
-        lines = [l.strip("- •\t").strip() for l in raw.splitlines() if l.strip()]
-        return [{"requirement": l, "weight": 1.0} for l in lines]
+            lines = [l.strip("- •\t").strip() for l in raw.splitlines() if l.strip()]
+            raw = [{"requirement": l} for l in lines]
 
-    return []
+    out: List[Dict[str, Any]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not (isinstance(item, dict) and str(item.get("requirement", "")).strip()):
+            continue
+        parsed = {
+            "id": str(item.get("id") or f"R{len(out) + 1}"),
+            "requirement": str(item["requirement"]).strip(),
+            "weight": float(item.get("weight", 1.0)),
+            "criticality": item.get("criticality", "medium"),
+        }
+        qty = item.get("quantity", item.get("qty"))
+        if qty is not None:
+            parsed["qty"] = qty
+        out.append(parsed)
+    return out
+
+
+# ─── Step 3: match one product item ───────────────────────────────────────────
+
+def _product_summary(c: Candidate) -> Dict[str, Any]:
+    p = c.product
+    return {
+        "product_id":      p.id,
+        "product_name":    p.item_name,
+        "product_range":   p.range_name,
+        "product_variant": p.variant,
+        "sap_code":        p.sap_code,
+        "unit_price":      p.unit_price,      # catalogue list price, for display
+        "match_score":     round(c.score * 100),
+    }
+
+
+def _product_item(item: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
+    """Search + pick for one single-product item. Safe to run in parallel."""
+    text = item["requirement"]
+    query = text[7:].strip() if text.lower().startswith("supply ") else text
+
+    candidates = find_candidates(query)
+    chosen, reason = pick_product(query, candidates, api_key)
+
+    result: Dict[str, Any] = {
+        **item,
+        "type":           "product",
+        "is_product_sku": True,
+        "evidence":       reason,
+        "rationale":      reason,
+    }
+    if chosen is None:
+        result.update({
+            "matched":      False,
+            "status":       "gap",
+            "match_score":  0,
+            "confidence":   None,
+            "alternatives": [_product_summary(c) for c in candidates[:3]],
+        })
+        return result
+
+    product = chosen.product
+    confidence = confidence_band(chosen.score)
+    qty = item.get("qty")
+    try:
+        qty = int(qty) if qty is not None else None
+    except (TypeError, ValueError):
+        qty = None
+
+    result.update({
+        **_product_summary(chosen),
+        "matched":           True,
+        "status":            "matched" if confidence == "high" else "needs_review",
+        "confidence":        confidence,
+        "hsn_code":          product.hsn_code,
+        "packing":           product.packing,
+        "alternatives":      [_product_summary(c) for c in candidates if c is not chosen][:3],
+        # Demo stock (synthetic): see catalogue.demo_stock_for()
+        "stock_on_hand":     product.on_hand,
+        "monthly_available": product.monthly_capacity,
+        "lead_time_days":    product.lead_time_days,
+        "stock_is_demo":     product.stock_is_demo,
+        "stock_sufficient":  (product.on_hand >= qty) if (qty and product.on_hand is not None) else None,
+    })
+    return result
+
+
+def _compliance_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        **item,
+        "type":           "compliance",
+        "is_product_sku": False,
+        "matched":        False,
+        "status":         "needs_review",
+        "evidence":       "Compliance requirement: confirm against company documents.",
+        "rationale":      "Not a catalogue product; needs a human to confirm.",
+    }
 
 
 # ─── LangGraph node ───────────────────────────────────────────────────────────
@@ -182,7 +232,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
     """
     LangGraph node.
     Reads rfp_requirements → writes matched_items, fulfillment_score,
-    fulfillment_report.
+    fulfillment_report, match_summary.
     """
     api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
 
@@ -191,101 +241,105 @@ def matching_agent_node(state: AgentState) -> AgentState:
         state["fulfillment_report"] = "No RFP requirements were available to match."
         state["fulfillment_score"] = 0.0
         state["matched_items"] = []
+        state["match_summary"] = _summary([])
         return state
 
-    # ── Step 1: classify all requirements in one LLM call ────────────────────
+    # ── Step 1: classify ──────────────────────────────────────────────────────
     print(f"[MatchingAgent] Classifying {len(requirements)} requirements (1 LLM call) …")
-    type_map = _classify_requirements_llm(requirements, api_key)
+    types = _classify_requirements_llm(requirements, api_key)
+    product_reqs = [r for r, t in zip(requirements, types) if t == "product_sku"]
 
-    # ── Step 2: RAG fulfillment check for each requirement ────────────────────
+    # ── Step 2: atomise product requirements ──────────────────────────────────
+    print(f"[MatchingAgent] Splitting {len(product_reqs)} product requirements (1 LLM call) …")
+    split = atomise([r["requirement"] for r in product_reqs], api_key)
+    product_items: Dict[str, List[Dict[str, Any]]] = {}
+    for req, parts in zip(product_reqs, split):
+        if len(parts) == 1:
+            product_items[req["id"]] = [{**req, "requirement": parts[0]}]
+            continue
+        product_items[req["id"]] = [
+            {
+                "id":          f"{req['id']}.{k}",
+                "parent_id":   req["id"],
+                "requirement": part,
+                "weight":      round(req["weight"] / len(parts), 4),
+                "criticality": req["criticality"],
+                # A quantity stated for the whole group is ambiguous per item.
+            }
+            for k, part in enumerate(parts, 1)
+        ]
+
+    # ── Step 3: match every product item in parallel ─────────────────────────
+    flat = [item for items in product_items.values() for item in items]
+    print(f"[MatchingAgent] Matching {len(flat)} product items "
+          f"({LLM_MAX_CONCURRENCY} in parallel) …")
+    with ThreadPoolExecutor(max_workers=max(1, LLM_MAX_CONCURRENCY)) as pool:
+        matched_flat = list(pool.map(lambda it: _product_item(it, api_key), flat))
+    matched_by_id = {m["id"]: m for m in matched_flat}
+
+    # Keep the RFP's order: each requirement, then its split items.
     matched_items: List[Dict[str, Any]] = []
-    total_weight   = 0.0
-    matched_weight = 0.0
-    total_reqs     = len(requirements)
+    for req, kind in zip(requirements, types):
+        if kind == "compliance":
+            matched_items.append(_compliance_item(req))
+        else:
+            matched_items.extend(matched_by_id[i["id"]] for i in product_items[req["id"]])
 
-    print(f"[MatchingAgent] Running RAG fulfillment check on {total_reqs} requirements …")
-    for i, req_obj in enumerate(requirements, 1):
-        req    = req_obj["requirement"]
-        weight = req_obj["weight"]
-        total_weight += weight
-        req_type = type_map.get(req.strip(), "product_sku")
-
-        print(f"[MatchingAgent] {i:>2}/{total_reqs}  {req[:65]}")
-        is_match, evidence = _assess_one(req, api_key)
-        icon = "✅ MATCH" if is_match else "❌ GAP  "
-        sku_tag = "🏷 SKU" if req_type == "product_sku" else "📋 Compliance"
-        print(f"[MatchingAgent]       → {icon}  {sku_tag}")
-
-        matched = {
-            "requirement":    req,
-            "weight":         weight,
-            "matched":        is_match,
-            "is_product_sku": req_type == "product_sku",
-            "evidence":       evidence,
-        }
-        if "qty" in req_obj:
-            matched["qty"] = req_obj["qty"]
-        matched_items.append(matched)
-        if is_match:
-            matched_weight += weight
-
-    # ── Step 3: build fulfillment report ─────────────────────────────────────
-    score    = round((matched_weight / total_weight) * 100, 1) if total_weight else 0.0
-    n_matched = sum(1 for m in matched_items if m["matched"])
-
-    sku_matched  = [m for m in matched_items if m["matched"]     and m["is_product_sku"]]
-    sku_gaps     = [m for m in matched_items if not m["matched"] and m["is_product_sku"]]
-    comp_matched = [m for m in matched_items if m["matched"]     and not m["is_product_sku"]]
-    comp_gaps    = [m for m in matched_items if not m["matched"] and not m["is_product_sku"]]
-
-    def _bullet_lines(items: List[Dict]) -> List[str]:
-        return [f"  • {m['requirement']}" for m in items] if items else ["  (none)"]
-
-    report_lines = [
-        f"Fulfillment score: {score}%  ({n_matched}/{len(matched_items)} requirements met)",
-        "",
-        "─── Product SKUs ─────────────────────────────────────────────────",
-        "✅ Can supply:",
-        *_bullet_lines(sku_matched),
-        "",
-        "❌ Cannot supply / gaps:",
-        *_bullet_lines(sku_gaps),
-        "",
-        "─── Compliance & Eligibility ─────────────────────────────────────",
-        "✅ Met:",
-        *_bullet_lines(comp_matched),
-        "",
-        "❌ Not met / gaps:",
-        *_bullet_lines(comp_gaps),
-    ]
-
+    summary = _summary(matched_items)
     state["matched_items"]      = matched_items
-    state["fulfillment_score"]  = score
-    state["fulfillment_report"] = "\n".join(report_lines)
+    state["fulfillment_score"]  = summary["fulfillment_score"]
+    state["fulfillment_report"] = _report(matched_items, summary)
+    state["match_summary"]      = summary
 
-    # ── Rich print output ─────────────────────────────────────────────────────
     print(f"\n╔{'═' * (_W - 2)}╗")
     print(f"║  {'MATCHING AGENT — OUTPUT':<{_W - 4}}║")
-    print(f"╠{'═' * (_W - 2)}╣")
-    print(f"║  Fulfillment score: {score}%  ({n_matched}/{len(matched_items)} met){'':<{_W - 48}}║")
-    print(f"╠{'─' * (_W - 2)}╣")
-
-    sections = [
-        ("🏷  PRODUCT SKUs — CAN SUPPLY",    sku_matched,  True),
-        ("🏷  PRODUCT SKUs — GAPS",           sku_gaps,     False),
-        ("📋  COMPLIANCE — MET",              comp_matched, True),
-        ("📋  COMPLIANCE — GAPS",             comp_gaps,    False),
-    ]
-    for heading, items, _ in sections:
-        print(f"║  {heading:<{_W - 4}}║")
-        if not items:
-            print(f"║    {'(none)':<{_W - 6}}║")
-        for m in items:
-            text = m["requirement"]
-            for chunk in _wrap(text):
-                print(f"║    • {chunk:<{_W - 8}}║")
-        print(f"╠{'─' * (_W - 2)}╣")
-
-    print(f"╚{'═' * (_W - 2)}╝\n")
-
+    print(f"╚{'═' * (_W - 2)}╝")
+    print(state["fulfillment_report"])
     return state
+
+
+# ─── Summary and report ───────────────────────────────────────────────────────
+
+def _summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    products = [m for m in items if m.get("type") == "product"]
+    total_w = sum(m["weight"] for m in products)
+    found_w = sum(m["weight"] for m in products if m.get("matched"))
+    return {
+        "fulfillment_score":  round(found_w / total_w * 100, 1) if total_w else 0.0,
+        "product_items":      len(products),
+        "matched":            sum(1 for m in products if m.get("status") == "matched"),
+        "needs_review":       sum(1 for m in products if m.get("status") == "needs_review"),
+        "gaps":               sum(1 for m in products if m.get("status") == "gap"),
+        "compliance_pending": sum(1 for m in items if m.get("type") == "compliance"),
+    }
+
+
+def _report(items: List[Dict[str, Any]], summary: Dict[str, Any]) -> str:
+    def product_line(m: Dict[str, Any]) -> str:
+        if m["status"] == "gap":
+            return f"  • {m['requirement']}  →  no catalogue product ({m['rationale']})"
+        return (f"  • {m['requirement']}  →  {m['product_name']} ({m['product_range']}), "
+                f"SAP {m['sap_code']}, {m['match_score']}% [{m['confidence']}]")
+
+    groups = [
+        ("✅ Matched", [m for m in items if m.get("status") == "matched" and m["type"] == "product"]),
+        ("🔍 Needs review", [m for m in items if m.get("status") == "needs_review" and m["type"] == "product"]),
+        ("❌ Gaps (not in catalogue)", [m for m in items if m.get("status") == "gap"]),
+    ]
+    lines = [
+        f"Fulfillment score: {summary['fulfillment_score']}%  "
+        f"({summary['matched'] + summary['needs_review']}/{summary['product_items']} "
+        f"product items have a catalogue product)",
+        "",
+        "─── Product SKUs ─────────────────────────────────────────────────",
+    ]
+    for title, members in groups:
+        lines.append(f"{title}:")
+        lines.extend([product_line(m) for m in members] or ["  (none)"])
+        lines.append("")
+    lines.append("─── Compliance & Eligibility (confirm manually) ──────────────────")
+    compliance = [m for m in items if m.get("type") == "compliance"]
+    lines.extend([f"  • {m['requirement']}" for m in compliance] or ["  (none)"])
+    lines.append("")
+    lines.append("Stock figures are demo data.")
+    return "\n".join(lines)

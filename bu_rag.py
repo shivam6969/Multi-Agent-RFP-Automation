@@ -149,24 +149,34 @@ class BuRagTool:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def search_products_scored(
+        self,
+        query: str,
+        top_k: int = 8,
+        candidate_k: int = 25,
+    ) -> List[Tuple[ProductRecord, float]]:
+        """
+        Return (product, relevance) pairs for *query*, best first.
+
+        Embedding search over the product index, then cross-encoder rerank.
+        Relevance is the reranker score in 0-1 (see MATCH_* in settings.py
+        for how it was calibrated). Unlike retrieve(), this returns
+        structured records (id, SAP, price), so callers never parse text.
+        """
+        indices = self._top_json_indices(query, candidate_k)
+        pairs = [(query, self.json_texts[i]) for i in indices]
+        scores = self.reranker.predict(pairs)
+        ranked = sorted(zip(indices, scores), key=lambda x: x[1], reverse=True)
+        return [(self.products[i], float(s)) for i, s in ranked[:top_k]]
+
     def search_products(
         self,
         query: str,
         top_k: int = 8,
         candidate_k: int = 25,
     ) -> List[ProductRecord]:
-        """
-        Return the catalogue products most relevant to *query*.
-
-        Embedding search over the product index, then cross-encoder rerank.
-        Unlike retrieve(), this returns structured records (id, SAP, price),
-        so callers can pick a product without parsing text.
-        """
-        indices = self._top_json_indices(query, candidate_k)
-        pairs = [(query, self.json_texts[i]) for i in indices]
-        scores = self.reranker.predict(pairs)
-        ranked = sorted(zip(indices, scores), key=lambda x: x[1], reverse=True)
-        return [self.products[i] for i, _ in ranked[:top_k]]
+        """Like search_products_scored() but returns only the products."""
+        return [p for p, _ in self.search_products_scored(query, top_k, candidate_k)]
 
 
     def retrieve(
