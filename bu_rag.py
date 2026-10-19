@@ -20,12 +20,13 @@ This file is intentionally free of agent logic — it is a pure data tool.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+import os
+import threading
+from dataclasses import astuple, dataclass
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import faiss
 import numpy as np
-from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from settings import (
     BU_EMBED_MODEL,
@@ -40,7 +41,9 @@ from settings import (
     LLM_MODEL,
 )
 from catalogue import ProductRecord, get_catalogue
+from embedding_cache import encode_cached
 from llm import chat_completion
+from models import get_embedder, get_reranker
 
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -66,10 +69,10 @@ class BuRagTool:
         self.config = config
 
         print(f"[BuRagTool] Loading embed model: {config.embed_model_name}")
-        self.embed_model = SentenceTransformer(config.embed_model_name)
+        self.embed_model = get_embedder(config.embed_model_name)
 
         print(f"[BuRagTool] Loading rerank model: {config.rerank_model_name}")
-        self.reranker = CrossEncoder(config.rerank_model_name)
+        self.reranker = get_reranker(config.rerank_model_name)
 
         # Text chunk indexes
         self.small_chunks = self._load_chunks(config.small_chunks_path)
@@ -102,7 +105,7 @@ class BuRagTool:
 
     def _embed_docs(self, docs: Sequence[str]) -> np.ndarray:
         prefixed = ["passage: " + d for d in docs]
-        return self.embed_model.encode(prefixed, normalize_embeddings=True)
+        return encode_cached(self.embed_model, prefixed, normalize_embeddings=True)
 
     def _embed_query(self, query: str) -> np.ndarray:
         return self.embed_model.encode(
@@ -214,13 +217,37 @@ class BuRagTool:
 
 # ─── Module-level singleton ───────────────────────────────────────────────────
 
-_INSTANCE: Optional[BuRagTool] = None
+# ─── Per-catalogue registry ───────────────────────────────────────────────────
+#
+# One tool per catalogue config. The key includes each data file's size and
+# modification time, so editing the catalogue rebuilds the tool (and the
+# embedding cache recomputes only what changed).
+
+_TOOLS: Dict[Tuple, BuRagTool] = {}
+_TOOLS_LOCK = threading.Lock()
+
+
+def _tool_key(cfg: BuRagConfig) -> Tuple:
+    stamps = tuple(
+        (os.path.getsize(p), os.path.getmtime(p))
+        for p in (cfg.small_chunks_path, cfg.large_chunks_path, cfg.json_path)
+    )
+    return astuple(cfg) + stamps
 
 
 def get_bu_rag_tool(config: Optional[BuRagConfig] = None) -> BuRagTool:
-    """Return (and lazily create) the module-level singleton."""
-    global _INSTANCE
+    """Return the BU tool for this catalogue config, building it on first use."""
     cfg = config or BuRagConfig()
-    if _INSTANCE is None:
-        _INSTANCE = BuRagTool(cfg)
-    return _INSTANCE
+    key = _tool_key(cfg)
+    with _TOOLS_LOCK:
+        tool = _TOOLS.get(key)
+        if tool is None:
+            tool = BuRagTool(cfg)
+            _TOOLS[key] = tool
+        return tool
+
+
+def clear_bu_tools() -> None:
+    """Drop all in-memory BU tools (used by tests)."""
+    with _TOOLS_LOCK:
+        _TOOLS.clear()

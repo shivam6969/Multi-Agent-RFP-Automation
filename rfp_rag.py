@@ -14,23 +14,28 @@ This file is intentionally free of agent logic — it is a pure data tool.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 import faiss
-import fitz  # PyMuPDF
-import numpy as np
-from sentence_transformers import SentenceTransformer
+import pymupdf
 
 from settings import (
     LLM_MODEL,
     RFP_EMBED_MODEL,
-    RFP_MAX_CHUNK_LENGTH,      
+    RFP_MAX_CHUNK_LENGTH,
     RFP_PDF_PATH,
+    RFP_TOOL_CACHE_SIZE,
     RFP_TOP_K,
 )
+from embedding_cache import encode_cached
 from llm import chat_completion
+from models import get_embedder
 
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -55,18 +60,21 @@ class RfpRagTool:
         self.config = config
 
         print(f"[RfpRagTool] Loading embed model: {config.embed_model_name}")
-        self.embed_model = SentenceTransformer(config.embed_model_name)
+        self.embed_model = get_embedder(config.embed_model_name)
 
         raw_text = self._extract_text(config.pdf_path)
         sections = self._chunk_by_sections(raw_text)
         self.chunks: List[str] = self._split_large_chunks(
             sections, max_length=config.max_chunk_length
         )
+        if not self.chunks:
+            raise ValueError(
+                f"No readable text found in {config.pdf_path}. "
+                "If it is a scanned document, it needs OCR before it can be analysed."
+            )
 
         print(f"[RfpRagTool] Indexing {len(self.chunks)} chunks …")
-        embeddings = self.embed_model.encode(
-            self.chunks, show_progress_bar=False
-        ).astype("float32")
+        embeddings = encode_cached(self.embed_model, self.chunks)
 
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dim)
@@ -77,8 +85,10 @@ class RfpRagTool:
 
     @staticmethod
     def _extract_text(pdf_path: str) -> str:
-        doc = fitz.open(pdf_path)
-        return "".join(page.get_text() for page in doc)
+        if not Path(pdf_path).is_file():
+            raise FileNotFoundError(f"RFP PDF not found: {pdf_path}")
+        with pymupdf.open(pdf_path) as doc:
+            return "".join(page.get_text() for page in doc)
 
     @staticmethod
     def _chunk_by_sections(text: str) -> List[str]:
@@ -111,8 +121,8 @@ class RfpRagTool:
     def retrieve(self, query: str, top_k: int = RFP_TOP_K) -> List[str]:
         """Return the top-k most relevant RFP chunks for *query*."""
         q_emb = self.embed_model.encode([query]).astype("float32")
-        _, indices = self.index.search(q_emb, top_k)
-        return [self.chunks[i] for i in indices[0]]
+        _, indices = self.index.search(q_emb, min(top_k, len(self.chunks)))
+        return [self.chunks[i] for i in indices[0] if i >= 0]
 
     def build_context(self, query: str, top_k: int = RFP_TOP_K) -> str:
         return "\n\n".join(self.retrieve(query, top_k=top_k))
@@ -145,15 +155,47 @@ class RfpRagTool:
         )
 
 
-# ─── Module-level singleton ───────────────────────────────────────────────────
+# ─── Per-RFP registry ─────────────────────────────────────────────────────────
+#
+# One tool per distinct PDF *content* (not path), so re-uploading the same file
+# reuses the index and editing a file builds a new one. The few most recently
+# used tools stay in memory; their embeddings also live in the disk cache.
 
-_INSTANCE: Optional[RfpRagTool] = None
+_TOOLS: "OrderedDict[Tuple, RfpRagTool]" = OrderedDict()
+_TOOLS_LOCK = threading.Lock()
+
+
+def _file_sha256(path: str) -> str:
+    if not Path(path).is_file():
+        raise FileNotFoundError(f"RFP PDF not found: {path}")
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _tool_key(cfg: RfpRagConfig) -> Tuple:
+    return (
+        _file_sha256(cfg.pdf_path),
+        cfg.embed_model_name,
+        cfg.llm_model_name,
+        cfg.max_chunk_length,
+    )
 
 
 def get_rfp_rag_tool(config: Optional[RfpRagConfig] = None) -> RfpRagTool:
-    """Return (and lazily create) the module-level singleton."""
-    global _INSTANCE
+    """Return the RFP tool for this config's PDF, building it on first use."""
     cfg = config or RfpRagConfig()
-    if _INSTANCE is None:
-        _INSTANCE = RfpRagTool(cfg)
-    return _INSTANCE
+    key = _tool_key(cfg)
+    with _TOOLS_LOCK:
+        tool = _TOOLS.get(key)
+        if tool is None:
+            tool = RfpRagTool(cfg)
+            _TOOLS[key] = tool
+            while len(_TOOLS) > RFP_TOOL_CACHE_SIZE:
+                _TOOLS.popitem(last=False)
+        _TOOLS.move_to_end(key)
+        return tool
+
+
+def clear_rfp_tools() -> None:
+    """Drop all in-memory RFP tools (used by tests)."""
+    with _TOOLS_LOCK:
+        _TOOLS.clear()

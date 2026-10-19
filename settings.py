@@ -71,6 +71,13 @@ RFP_TOP_K: int = 3
 
 # ─── Cache ────────────────────────────────────────────────────────────────────
 
+# Document embeddings, keyed by model + exact texts (see embedding_cache.py).
+CACHE_DIR: str = os.environ.get("SYNAPSE_CACHE_DIR", str(VAR_DIR / "cache"))
+EMBEDDING_CACHE_DIR: str = str(Path(CACHE_DIR) / "embeddings")
+
+# How many RFP search indexes to keep in memory at once (one per PDF).
+RFP_TOOL_CACHE_SIZE: int = 8
+
 FULFILLMENT_CACHE_PATH: str = str(PROJECT_ROOT / ".rfp_fulfillment_cache.json")
 
 
