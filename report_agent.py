@@ -598,7 +598,8 @@ def report_agent_node(
     if not gemini_key or gemini_key in ("", "YOUR_GEMINI_API_KEY_HERE"):
         state["error"] = (
             "GEMINI_API_KEY is not set. "
-            "Set the env var or add it to settings.py as GEMINI_API_KEY."
+            "Add it to a .env file in the project root (see .env.example) "
+            "or set it as an environment variable."
         )
         print("[ReportAgent] ✗ GEMINI_API_KEY missing — aborting.")
         return state

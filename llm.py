@@ -22,7 +22,8 @@ def get_openrouter_client(api_key: Optional[str] = None) -> OpenAI:
     if not key or key == "YOUR_OPENROUTER_API_KEY_HERE":
         raise ValueError(
             "OPENROUTER_API_KEY is not set. "
-            "Either set the env var or edit settings.py."
+            "Add it to a .env file in the project root (see .env.example) "
+            "or set it as an environment variable."
         )
     return OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL)
 
