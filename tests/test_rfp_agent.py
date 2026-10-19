@@ -4,40 +4,73 @@ import json
 import unittest
 from unittest.mock import patch
 
-from rfp_agent import rfp_agent_node
+from rfp_agent import _windows, rfp_agent_node
 
 
 class _FakeRfpTool:
+    chunks = [
+        "1. Scope: supply 16A 2Way switches, quantity 500 units.",
+        "2. Eligibility: vendor must be ISO certified.",
+        "3. Delivery: within 14 days. Vendor must be ISO certified.",
+    ]
+
     def run_query(self, query: str, api_key=None):
         return f"Answer: {query}"
 
-    def build_context(self, query: str, top_k: int = 5):
-        return "Requirement: Must be ISO certified."
+
+WINDOW_REPLIES = {
+    "16A 2Way": [{"requirement": "Supply 16A 2Way switches", "criticality": "MANDATORY", "quantity": "500"}],
+    "Eligibility": [{"requirement": "Must be ISO certified", "criticality": "mandatory", "quantity": None}],
+    "Delivery": [
+        {"requirement": "Deliver within 14 days", "criticality": "urgent!"},   # unknown → medium
+        {"requirement": "Must be ISO-certified.", "criticality": "high"},       # duplicate
+        {"requirement": "ok", "criticality": "low"},                            # too short
+    ],
+}
+
+
+def fake_llm(*, system: str, user: str, **_):
+    for marker, reply in WINDOW_REPLIES.items():
+        if marker in user:
+            return json.dumps(reply)
+    raise AssertionError("unexpected window")
 
 
 class RfpAgentTests(unittest.TestCase):
-    @patch("rfp_agent.chat_completion")
-    @patch("rfp_agent.get_rfp_rag_tool")
-    def test_rfp_agent_node_sets_answer_and_requirements(self, mock_get_tool, mock_chat):
-        mock_get_tool.return_value = _FakeRfpTool()
-        mock_chat.return_value = json.dumps(
-            [
-                {
-                    "requirement": "Must be ISO certified",
-                    "criticality": "mandatory",
-                    "weight": 4,
-                }
-            ]
-        )
+    def run_node(self, llm=fake_llm):
+        with patch("rfp_agent.get_rfp_rag_tool", return_value=_FakeRfpTool()), \
+             patch("rfp_agent.RFP_EXTRACT_WINDOW_CHARS", 60), \
+             patch("llm_json.chat_completion", side_effect=llm):
+            return rfp_agent_node({"user_query": "What are the eligibility criteria?"})
 
-        state = {"user_query": "What are the eligibility criteria?"}
-        out = rfp_agent_node(state)
-
-        self.assertIn("rfp_answer", out)
+    def test_reads_every_window_and_cleans_results(self) -> None:
+        out = self.run_node()
         self.assertEqual(out["rfp_answer"], "Answer: What are the eligibility criteria?")
-        self.assertIn("rfp_requirements", out)
-        self.assertEqual(len(out["rfp_requirements"]), 1)
-        self.assertEqual(out["rfp_requirements"][0]["requirement"], "Must be ISO certified")
+        self.assertEqual(out["rfp_requirements"], [
+            {"id": "R1", "requirement": "Supply 16A 2Way switches", "criticality": "mandatory",
+             "weight": 4.0, "quantity": 500},
+            {"id": "R2", "requirement": "Must be ISO certified", "criticality": "mandatory",
+             "weight": 4.0, "quantity": None},
+            {"id": "R3", "requirement": "Deliver within 14 days", "criticality": "medium",
+             "weight": 2.0, "quantity": None},
+        ])
+        self.assertNotIn("warnings", out)
+
+    def test_failed_window_becomes_a_warning(self) -> None:
+        def flaky(*, system, user, **kw):
+            return "not json" if "Delivery" in user else fake_llm(system=system, user=user)
+
+        out = self.run_node(flaky)
+        self.assertEqual(len(out["rfp_requirements"]), 2)
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("part 3 of 3", out["warnings"][0])
+
+
+class WindowTests(unittest.TestCase):
+    def test_groups_chunks_up_to_the_limit(self) -> None:
+        self.assertEqual(_windows(["aaaa", "bbbb", "cc"], 9), ["aaaa\n\nbbbb", "cc"])
+        self.assertEqual(_windows(["x" * 20], 5), ["x" * 20])  # never splits a chunk
+        self.assertEqual(_windows([], 5), [])
 
 
 if __name__ == "__main__":

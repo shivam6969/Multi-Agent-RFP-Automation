@@ -7,21 +7,25 @@ Responsibility
 --------------
   1. Answer the user's query from the RFP document (state["rfp_answer"]).
   2. Extract a structured list of RFP requirements for downstream agents
-     (state["rfp_requirements"]).
+     (state["rfp_requirements"]): [{id, requirement, criticality, weight,
+     quantity}]. The WHOLE document is read, in windows that are processed
+     in parallel, and every LLM reply is schema-validated (llm_json.py).
 
 Both outputs are produced in a single run to avoid redundant PDF retrieval.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Tuple
 
-from settings import OPENROUTER_API_KEY
+from pydantic import BaseModel, field_validator
+
+from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY, RFP_EXTRACT_WINDOW_CHARS
 from rfp_rag import RfpRagConfig, get_rfp_rag_tool
-from llm import chat_completion
+from llm_json import LLMOutputError, chat_json
 from state import AgentState
 
 _W = 72  # print banner width
@@ -65,66 +69,126 @@ def _print_footer() -> None:
 _REQ_EXTRACTION_PROMPT = """
 You are an expert procurement analyst.
 
-Extract RFP requirements from the context as a JSON array of objects.
-Each object must have:
+Extract every requirement stated in this part of an RFP as a JSON array of
+objects. Include product line items (one entry per product line as written),
+technical specifications, eligibility criteria, delivery/logistics terms and
+submission obligations. Each object must have:
   - "requirement"  : short plain-English statement of the requirement
   - "criticality"  : "mandatory" | "high" | "medium" | "low"
-  - "weight"       : numeric — mandatory=4, high=3, medium=2, low=1
   - "quantity"     : integer number of units ONLY if the RFP states an explicit
                      order quantity for this specific item, otherwise null.
                      Do not use monthly supply estimates, packing formats or
                      numbers that are part of a product name (e.g. "RJ-45").
 
+If this part contains no requirements, return [].
 Return ONLY valid JSON. No markdown, no explanation.
 
-Context:
+RFP text (part {part} of {parts}):
 {context}
 """.strip()
+
+_WEIGHTS = {"mandatory": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0}
+
+
+class _Requirement(BaseModel):
+    requirement: str
+    criticality: str = "medium"
+    quantity: Optional[int] = None
+
+    @field_validator("criticality", mode="before")
+    @classmethod
+    def _known_criticality(cls, value: Any) -> str:
+        value = str(value or "").strip().lower()
+        return value if value in _WEIGHTS else "medium"
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def _positive_int_or_none(cls, value: Any) -> Optional[int]:
+        try:
+            number = int(str(value).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+
+def _windows(chunks: List[str], max_chars: int) -> List[str]:
+    """Group consecutive chunks into windows of at most ~max_chars."""
+    windows: List[str] = []
+    current: List[str] = []
+    size = 0
+    for chunk in chunks:
+        if current and size + len(chunk) > max_chars:
+            windows.append("\n\n".join(current))
+            current, size = [], 0
+        current.append(chunk)
+        size += len(chunk)
+    if current:
+        windows.append("\n\n".join(current))
+    return windows
+
+
+def _normalise(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
 def _extract_requirements(
     rfp_tool,
     api_key: Optional[str],
-) -> List[Dict[str, Any]]:
-    context = rfp_tool.build_context(
-        "requirements eligibility deliverables mandatory technical", top_k=5
-    )
-    raw = chat_completion(
-        system="You extract structured data from RFP documents. Return JSON only.",
-        user=_REQ_EXTRACTION_PROMPT.format(context=context),
-        temperature=0.0,
-        max_tokens=1500,
-        api_key=api_key,
-    )
-
-    fence_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
-    if fence_match:
-        raw = fence_match.group(1)
-    else:
-        bracket_match = re.search(r"\[.*\]", raw, re.DOTALL)
-        if bracket_match:
-            raw = bracket_match.group(0)
-
-    try:
-        data = json.loads(raw)
-        if isinstance(data, list):
-            valid = [
-                item for item in data
-                if isinstance(item, dict)
-                and isinstance(item.get("requirement"), str)
-                and len(item["requirement"].strip()) > 5
-            ]
-            return valid if valid else data
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    lines = [l.strip("- •\t").strip() for l in raw.splitlines() if l.strip()]
-    lines = [
-        l for l in lines
-        if len(l) > 10
-        and not l.startswith(("{", "}", "[", "]", '"weight"', '"criticality"'))
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Read the WHOLE RFP (in windows, in parallel) and return
+    ([{id, requirement, criticality, weight, quantity}], warnings).
+    """
+    chunks = getattr(rfp_tool, "chunks", None) or [
+        rfp_tool.build_context("requirements eligibility deliverables mandatory technical", top_k=5)
     ]
-    return [{"requirement": l, "criticality": "medium", "weight": 2.0} for l in lines]
+    windows = _windows(chunks, RFP_EXTRACT_WINDOW_CHARS)
+
+    def extract(numbered: Tuple[int, str]) -> Optional[List[_Requirement]]:
+        part, text = numbered
+        try:
+            return chat_json(
+                system="You extract structured data from RFP documents. Return JSON only.",
+                user=_REQ_EXTRACTION_PROMPT.format(context=text, part=part, parts=len(windows)),
+                schema=List[_Requirement],
+                temperature=0.0,
+                max_tokens=3000,
+                api_key=api_key,
+            )
+        except LLMOutputError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=max(1, LLM_MAX_CONCURRENCY)) as pool:
+        results = list(pool.map(extract, enumerate(windows, 1)))
+
+    warnings = [
+        f"Requirement extraction failed for part {i} of {len(windows)} of the RFP; "
+        "some requirements may be missing."
+        for i, r in enumerate(results, 1) if r is None
+    ]
+
+    requirements: List[Dict[str, Any]] = []
+    seen: Dict[str, Dict[str, Any]] = {}
+    for found in results:
+        for req in found or []:
+            text = req.requirement.strip()
+            key = _normalise(text)
+            if len(key) < 6:
+                continue
+            if key in seen:  # same requirement repeated across windows
+                if seen[key]["quantity"] is None:
+                    seen[key]["quantity"] = req.quantity
+                continue
+            item = {
+                "id":          f"R{len(requirements) + 1}",
+                "requirement": text,
+                "criticality": req.criticality,
+                "weight":      _WEIGHTS[req.criticality],
+                "quantity":    req.quantity,
+            }
+            seen[key] = item
+            requirements.append(item)
+    return requirements, warnings
 
 
 # ─── LangGraph node ───────────────────────────────────────────────────────────
@@ -146,8 +210,10 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     state["rfp_answer"] = rfp_answer
 
     print("[RfpAgent] Extracting structured requirements …")
-    requirements = _extract_requirements(rfp_tool, api_key)
+    requirements, warnings = _extract_requirements(rfp_tool, api_key)
     state["rfp_requirements"] = requirements
+    if warnings:
+        state["warnings"] = list(state.get("warnings", [])) + warnings
 
     # ── Rich print output ──────────────────────────────────────────────────────
     crit_icon = {"mandatory": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
