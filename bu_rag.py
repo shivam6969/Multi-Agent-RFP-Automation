@@ -7,19 +7,21 @@ Data sources (three complementary indexes)
 -------------------------------------------
 1. Small chunks   one color/category group per chunk  (fine-grained)
 2. Large chunks   one full product range per chunk    (broad context)
-3. JSON index     structured product rows as text     (exact field lookup)
+3. Product index  one catalogue product per entry, built from the catalogue
+                  DB (catalogue.py) with real name, price, SAP, HSN, packing
 
-The three result sets are merged and re-ranked with a CrossEncoder before
-being handed to the LLM.
+retrieve() merges all three result sets and re-ranks them with a CrossEncoder
+before handing them to the LLM. search_products() searches only the product
+index and returns structured ProductRecords, so pricing can pick a product by
+id instead of reading prices out of text.
 
 This file is intentionally free of agent logic — it is a pure data tool.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import faiss
 import numpy as np
@@ -37,6 +39,7 @@ from settings import (
     BU_TOP_K_SMALL,
     LLM_MODEL,
 )
+from catalogue import ProductRecord, get_catalogue
 from llm import chat_completion
 
 
@@ -74,11 +77,11 @@ class BuRagTool:
         self.small_index, _ = self._create_faiss_index(self.small_chunks)
         self.large_index, _ = self._create_faiss_index(self.large_chunks)
 
-        # JSON structured index
-        with open(config.json_path, "r", encoding="utf-8-sig") as f:
-            json_data = json.load(f)
-        products = self._flatten_json_products(json_data)
-        self.json_texts = [self._product_to_text(p) for p in products]
+        # Structured product index, built from the catalogue DB (one row per product)
+        self.products: List[ProductRecord] = get_catalogue(
+            json_path=config.json_path
+        ).all_products()
+        self.json_texts = [p.search_text() for p in self.products]
         self.json_embeddings = self._embed_docs(self.json_texts)
 
         print(
@@ -125,11 +128,13 @@ class BuRagTool:
         _, indices = index.search(q_emb, top_k)
         return [chunks[i] for i in indices[0]]
 
-    def _search_json(self, query: str, top_k: int) -> List[str]:
+    def _top_json_indices(self, query: str, top_k: int) -> List[int]:
         q_emb = self._embed_query(query)
         scores = np.dot(self.json_embeddings, q_emb.T).squeeze()
-        top_idx = np.argsort(scores)[-top_k:][::-1]
-        return [self.json_texts[i] for i in top_idx]
+        return [int(i) for i in np.argsort(scores)[-top_k:][::-1]]
+
+    def _search_json(self, query: str, top_k: int) -> List[str]:
+        return [self.json_texts[i] for i in self._top_json_indices(query, top_k)]
 
     def _rerank(
         self, query: str, candidates: Sequence[str], top_k: int
@@ -139,43 +144,27 @@ class BuRagTool:
         ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
         return [r[0] for r in ranked[:top_k]]
 
-    @staticmethod
-    def _flatten_json_products(data: Dict) -> List[Dict]:
-        brand = data.get("brand", "N/A")
-        products: List[Dict] = []
-        for range_entry in data.get("product_data", []):
-            range_name = range_entry.get("range", "N/A")
-            base = {"brand": brand, "range": range_name}
-            if "items" in range_entry:
-                for item in range_entry["items"]:
-                    products.append({**base, "variant": None, **item})
-            elif "colors" in range_entry:
-                for cb in range_entry["colors"]:
-                    for item in cb.get("items", []):
-                        products.append({**base, "variant": cb["color"], **item})
-            elif "categories" in range_entry:
-                for cb in range_entry["categories"]:
-                    for item in cb.get("items", []):
-                        products.append(
-                            {**base, "variant": cb["category"], **item}
-                        )
-        return products
-
-    @staticmethod
-    def _product_to_text(p: Dict) -> str:
-        return (
-            f"Product: {p.get('product', 'N/A')}\n"
-            f"Brand: {p.get('brand', 'N/A')}\n"
-            f"Range: {p.get('range', 'N/A')}\n"
-            f"Variant: {p.get('variant', 'N/A')}\n"
-            f"Price: {p.get('price', 'N/A')}\n"
-            f"SAP Code: {p.get('sap_code', 'N/A')}\n"
-            f"HSN Code: {p.get('hsn_code', 'N/A')}\n"
-            f"Packing: {p.get('packing', 'N/A')}\n"
-            f"Monthly Available: {p.get('monthly_avalaible', 'N/A')}\n"
-        )
-
     # ── Public API ────────────────────────────────────────────────────────────
+
+    def search_products(
+        self,
+        query: str,
+        top_k: int = 8,
+        candidate_k: int = 25,
+    ) -> List[ProductRecord]:
+        """
+        Return the catalogue products most relevant to *query*.
+
+        Embedding search over the product index, then cross-encoder rerank.
+        Unlike retrieve(), this returns structured records (id, SAP, price),
+        so callers can pick a product without parsing text.
+        """
+        indices = self._top_json_indices(query, candidate_k)
+        pairs = [(query, self.json_texts[i]) for i in indices]
+        scores = self.reranker.predict(pairs)
+        ranked = sorted(zip(indices, scores), key=lambda x: x[1], reverse=True)
+        return [self.products[i] for i, _ in ranked[:top_k]]
+
 
     def retrieve(
         self,
