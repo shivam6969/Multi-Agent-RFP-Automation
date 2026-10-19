@@ -21,8 +21,8 @@ Run from the command line:
 
 from __future__ import annotations
 
+import argparse
 import os
-import sys
 import webbrowser
 from langgraph.graph import END, StateGraph
 
@@ -298,13 +298,16 @@ def get_graph():
     return _COMPILED
 
 
-def run(query: str) -> str:
+def run(query: str, rfp_pdf_path: str | None = None) -> str:
     """
-    Run the full pipeline for a user query.
+    Run the full pipeline for a user query (optionally against a specific RFP).
     Returns the final synthesised response.
     """
     graph = get_graph()
-    result = graph.invoke({"user_query": query})
+    state: AgentState = {"user_query": query}
+    if rfp_pdf_path:
+        state["rfp_pdf_path"] = rfp_pdf_path
+    result = graph.invoke(state)
     return result.get("final_response", result.get("error", "No output produced."))
 
 
@@ -322,22 +325,33 @@ def _open_pdf(path: str) -> None:
 # ─── CLI entrypoint ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python master_agent.py \"<your query>\"")
-        print()
-        print("Examples:")
-        print('  python master_agent.py "What are the RFP eligibility criteria?"')
-        print('  python master_agent.py "Show me pricing for all matched products"')
-        print('  python master_agent.py "Generate the full vendor proposal PDF"')
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Ask a question about an RFP, or generate a quote / proposal.",
+        epilog=(
+            "examples:\n"
+            '  python master_agent.py "What are the RFP eligibility criteria?"\n'
+            '  python master_agent.py "Show me pricing for all matched products"\n'
+            '  python master_agent.py --rfp path/to/other.pdf "Generate the full vendor proposal PDF"'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("query", nargs="+", help="your question or instruction")
+    parser.add_argument("--rfp", help="RFP PDF to analyse (default: data/samples/sample_rfp.pdf)")
+    args = parser.parse_args()
 
-    user_query = " ".join(sys.argv[1:])
+    user_query = " ".join(args.query)
     print(f"\n{'='*70}")
     print(f"  Query: {user_query}")
+    if args.rfp:
+        print(f"  RFP  : {args.rfp}")
     print(f"{'='*70}\n")
 
+    initial: AgentState = {"user_query": user_query}
+    if args.rfp:
+        initial["rfp_pdf_path"] = args.rfp
+
     graph = get_graph()
-    result = graph.invoke({"user_query": user_query})
+    result = graph.invoke(initial)
     response = result.get("final_response", result.get("error", "No output produced."))
 
     print(f"\n{'='*70}")

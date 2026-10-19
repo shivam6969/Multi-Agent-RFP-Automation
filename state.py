@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 class AgentState(TypedDict, total=False):
     # ── Input ─────────────────────────────────────────────────────────────────
     user_query: str                        # raw question / instruction from user
+    rfp_pdf_path: str                      # RFP to analyse; default settings.RFP_PDF_PATH
 
     # ── RFP RAG outputs ───────────────────────────────────────────────────────
     rfp_answer: str                        # direct answer from RFP RAG

@@ -219,7 +219,7 @@ python master_agent.py "<your query>"
 python master_agent.py "What are the eligibility criteria in the RFP?"
 
 # Query the product catalog
-python master_agent.py "What LED streetlight products do we have and at what price?"
+python master_agent.py "Which 16A switches do we have and at what price?"
 
 # Check which requirements can be fulfilled
 python master_agent.py "Which RFP requirements can our catalog fulfill?"
@@ -232,7 +232,15 @@ python master_agent.py "Full RFP analysis with gap report and pricing"
 
 # Generate full proposal PDF (report route)
 python master_agent.py "Generate the full vendor proposal PDF"
+
+# Use a different RFP PDF (default: data/samples/sample_rfp.pdf)
+python master_agent.py --rfp path/to/other_rfp.pdf "What are the delivery terms?"
 ```
+
+The first run on a machine downloads the embedding models (~200 MB). After that,
+document embeddings are cached in `var/cache/`, so later runs only pay for loading
+the models (~15 s). Scanned PDFs without a text layer are rejected with a clear
+message; they need OCR first.
 
 ### Programmatic usage
 

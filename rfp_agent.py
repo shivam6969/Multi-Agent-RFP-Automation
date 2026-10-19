@@ -132,12 +132,14 @@ def _extract_requirements(
 def rfp_agent_node(state: AgentState) -> AgentState:
     """
     LangGraph node.
-    Reads user_query, writes rfp_answer and rfp_requirements.
+    Reads user_query (+ optional rfp_pdf_path), writes rfp_answer and
+    rfp_requirements.
     """
     api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
     query = state.get("user_query", "")
 
-    rfp_tool = get_rfp_rag_tool(RfpRagConfig())
+    pdf_path = state.get("rfp_pdf_path") or RfpRagConfig().pdf_path
+    rfp_tool = get_rfp_rag_tool(RfpRagConfig(pdf_path=pdf_path))
 
     print("[RfpAgent] Answering user query from RFP …")
     rfp_answer = rfp_tool.run_query(query, api_key=api_key)
