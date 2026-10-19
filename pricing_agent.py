@@ -61,6 +61,7 @@ def _explicit_qty(text: str) -> Optional[int]:
 def _resolve_qty(item: Dict[str, Any], user_query: str, rules: PricingRules) -> Tuple[int, str]:
     """
     Quantity for a line item and where it came from:
+      "reviewer"    — entered by a human during review
       "rfp"         — quantity field extracted from the RFP
       "requirement" — explicit "N units" phrase in the requirement text
       "query"       — explicit "N units" phrase in the user's question
@@ -71,7 +72,7 @@ def _resolve_qty(item: Dict[str, Any], user_query: str, rules: PricingRules) -> 
         value = item.get(key)
         try:
             if value is not None and int(value) > 0:
-                return int(value), "rfp"
+                return int(value), ("reviewer" if item.get("qty_reviewed") else "rfp")
         except (TypeError, ValueError):
             pass
     from_req = _explicit_qty(item.get("requirement", ""))

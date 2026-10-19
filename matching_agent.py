@@ -39,8 +39,9 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
+from catalogue import ProductRecord
 from llm_json import LLMOutputError, chat_json
-from product_matcher import Candidate, atomise, confidence_band, find_candidates, pick_product
+from product_matcher import atomise, confidence_band, find_candidates, pick_product
 from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY
 from state import AgentState
 
@@ -150,16 +151,53 @@ def _parse_requirements(raw: Any) -> List[Dict[str, Any]]:
 
 # ─── Step 3: match one product item ───────────────────────────────────────────
 
-def _product_summary(c: Candidate) -> Dict[str, Any]:
-    p = c.product
+def product_brief(product: ProductRecord, score: Optional[float] = None) -> Dict[str, Any]:
+    """Short product description used for the chosen product and alternatives."""
     return {
-        "product_id":      p.id,
-        "product_name":    p.item_name,
-        "product_range":   p.range_name,
-        "product_variant": p.variant,
-        "sap_code":        p.sap_code,
-        "unit_price":      p.unit_price,      # catalogue list price, for display
-        "match_score":     round(c.score * 100),
+        "product_id":      product.id,
+        "product_name":    product.item_name,
+        "product_range":   product.range_name,
+        "product_variant": product.variant,
+        "sap_code":        product.sap_code,
+        "unit_price":      product.unit_price,   # catalogue list price, for display
+        "match_score":     round(score * 100) if score is not None else None,
+    }
+
+
+def apply_product(
+    item: Dict[str, Any],
+    product: ProductRecord,
+    *,
+    score: Optional[float],
+    confidence: str,
+    rationale: str,
+) -> Dict[str, Any]:
+    """
+    Return a copy of *item* with *product* attached: catalogue fields, demo
+    stock and match metadata. Used by matching and by the human review step
+    ("Change Product"), so both produce identical item shapes.
+    """
+    qty = item.get("qty")
+    try:
+        qty = int(qty) if qty is not None else None
+    except (TypeError, ValueError):
+        qty = None
+
+    return {
+        **item,
+        **product_brief(product, score),
+        "matched":           True,
+        "confidence":        confidence,
+        "evidence":          rationale,
+        "rationale":         rationale,
+        "hsn_code":          product.hsn_code,
+        "packing":           product.packing,
+        # Demo stock (synthetic): see catalogue.demo_stock_for()
+        "stock_on_hand":     product.on_hand,
+        "monthly_available": product.monthly_capacity,
+        "lead_time_days":    product.lead_time_days,
+        "stock_is_demo":     product.stock_is_demo,
+        "stock_sufficient":  (product.on_hand >= qty) if (qty and product.on_hand is not None) else None,
     }
 
 
@@ -171,46 +209,26 @@ def _product_item(item: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any
     candidates = find_candidates(query)
     chosen, reason = pick_product(query, candidates, api_key)
 
-    result: Dict[str, Any] = {
-        **item,
-        "type":           "product",
-        "is_product_sku": True,
-        "evidence":       reason,
-        "rationale":      reason,
-    }
+    base: Dict[str, Any] = {**item, "type": "product", "is_product_sku": True}
     if chosen is None:
-        result.update({
+        return {
+            **base,
             "matched":      False,
             "status":       "gap",
             "match_score":  0,
             "confidence":   None,
-            "alternatives": [_product_summary(c) for c in candidates[:3]],
-        })
-        return result
+            "evidence":     reason,
+            "rationale":    reason,
+            "alternatives": [product_brief(c.product, c.score) for c in candidates[:3]],
+        }
 
-    product = chosen.product
     confidence = confidence_band(chosen.score)
-    qty = item.get("qty")
-    try:
-        qty = int(qty) if qty is not None else None
-    except (TypeError, ValueError):
-        qty = None
-
-    result.update({
-        **_product_summary(chosen),
-        "matched":           True,
-        "status":            "matched" if confidence == "high" else "needs_review",
-        "confidence":        confidence,
-        "hsn_code":          product.hsn_code,
-        "packing":           product.packing,
-        "alternatives":      [_product_summary(c) for c in candidates if c is not chosen][:3],
-        # Demo stock (synthetic): see catalogue.demo_stock_for()
-        "stock_on_hand":     product.on_hand,
-        "monthly_available": product.monthly_capacity,
-        "lead_time_days":    product.lead_time_days,
-        "stock_is_demo":     product.stock_is_demo,
-        "stock_sufficient":  (product.on_hand >= qty) if (qty and product.on_hand is not None) else None,
-    })
+    result = apply_product(base, chosen.product, score=chosen.score,
+                           confidence=confidence, rationale=reason)
+    result["status"] = "matched" if confidence == "high" else "needs_review"
+    result["alternatives"] = [
+        product_brief(c.product, c.score) for c in candidates if c is not chosen
+    ][:3]
     return result
 
 
@@ -241,7 +259,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
         state["fulfillment_report"] = "No RFP requirements were available to match."
         state["fulfillment_score"] = 0.0
         state["matched_items"] = []
-        state["match_summary"] = _summary([])
+        state["match_summary"] = match_summary([])
         return state
 
     # ── Step 1: classify ──────────────────────────────────────────────────────
@@ -285,10 +303,10 @@ def matching_agent_node(state: AgentState) -> AgentState:
         else:
             matched_items.extend(matched_by_id[i["id"]] for i in product_items[req["id"]])
 
-    summary = _summary(matched_items)
+    summary = match_summary(matched_items)
     state["matched_items"]      = matched_items
     state["fulfillment_score"]  = summary["fulfillment_score"]
-    state["fulfillment_report"] = _report(matched_items, summary)
+    state["fulfillment_report"] = fulfillment_report(matched_items, summary)
     state["match_summary"]      = summary
 
     print(f"\n╔{'═' * (_W - 2)}╗")
@@ -299,32 +317,48 @@ def matching_agent_node(state: AgentState) -> AgentState:
 
 
 # ─── Summary and report ───────────────────────────────────────────────────────
+#
+# Product item status:    matched (high confidence) | needs_review | gap
+#                         | approved / rejected (set by a human reviewer)
+# Compliance item status: needs_review | met / not_met (set by a reviewer)
 
-def _summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+def match_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     products = [m for m in items if m.get("type") == "product"]
+    compliance = [m for m in items if m.get("type") == "compliance"]
     total_w = sum(m["weight"] for m in products)
     found_w = sum(m["weight"] for m in products if m.get("matched"))
+
+    def count(group: List[Dict[str, Any]], *statuses: str) -> int:
+        return sum(1 for m in group if m.get("status") in statuses)
+
     return {
         "fulfillment_score":  round(found_w / total_w * 100, 1) if total_w else 0.0,
         "product_items":      len(products),
-        "matched":            sum(1 for m in products if m.get("status") == "matched"),
-        "needs_review":       sum(1 for m in products if m.get("status") == "needs_review"),
-        "gaps":               sum(1 for m in products if m.get("status") == "gap"),
-        "compliance_pending": sum(1 for m in items if m.get("type") == "compliance"),
+        "matched":            count(products, "matched", "approved"),
+        "approved":           count(products, "approved"),
+        "needs_review":       count(products, "needs_review"),
+        "gaps":               count(products, "gap"),
+        "rejected":           count(products, "rejected"),
+        "compliance_pending": count(compliance, "needs_review"),
+        "compliance_met":     count(compliance, "met"),
+        "compliance_not_met": count(compliance, "not_met"),
     }
 
 
-def _report(items: List[Dict[str, Any]], summary: Dict[str, Any]) -> str:
+def fulfillment_report(items: List[Dict[str, Any]], summary: Dict[str, Any]) -> str:
     def product_line(m: Dict[str, Any]) -> str:
-        if m["status"] == "gap":
-            return f"  • {m['requirement']}  →  no catalogue product ({m['rationale']})"
+        if not m.get("product_id"):
+            return f"  • {m['requirement']}  →  no catalogue product ({m.get('rationale', '')})"
+        score = f"{m['match_score']}% " if m.get("match_score") is not None else ""
         return (f"  • {m['requirement']}  →  {m['product_name']} ({m['product_range']}), "
-                f"SAP {m['sap_code']}, {m['match_score']}% [{m['confidence']}]")
+                f"SAP {m['sap_code']}, {score}[{m.get('confidence')}]")
 
+    products = [m for m in items if m.get("type") == "product"]
     groups = [
-        ("✅ Matched", [m for m in items if m.get("status") == "matched" and m["type"] == "product"]),
-        ("🔍 Needs review", [m for m in items if m.get("status") == "needs_review" and m["type"] == "product"]),
-        ("❌ Gaps (not in catalogue)", [m for m in items if m.get("status") == "gap"]),
+        ("✅ Matched", [m for m in products if m.get("status") in ("matched", "approved")]),
+        ("🔍 Needs review", [m for m in products if m.get("status") == "needs_review"]),
+        ("❌ Gaps (not in catalogue)", [m for m in products if m.get("status") == "gap"]),
+        ("⛔ Rejected by reviewer", [m for m in products if m.get("status") == "rejected"]),
     ]
     lines = [
         f"Fulfillment score: {summary['fulfillment_score']}%  "
@@ -334,12 +368,20 @@ def _report(items: List[Dict[str, Any]], summary: Dict[str, Any]) -> str:
         "─── Product SKUs ─────────────────────────────────────────────────",
     ]
     for title, members in groups:
-        lines.append(f"{title}:")
-        lines.extend([product_line(m) for m in members] or ["  (none)"])
-        lines.append("")
-    lines.append("─── Compliance & Eligibility (confirm manually) ──────────────────")
+        if members or title != "⛔ Rejected by reviewer":
+            lines.append(f"{title}:")
+            lines.extend([product_line(m) for m in members] or ["  (none)"])
+            lines.append("")
+
+    marks = {"met": "✅", "not_met": "❌", "needs_review": "☐"}
+    lines.append("─── Compliance & Eligibility ─────────────────────────────────────")
     compliance = [m for m in items if m.get("type") == "compliance"]
-    lines.extend([f"  • {m['requirement']}" for m in compliance] or ["  (none)"])
+    lines.extend(
+        [f"  {marks.get(m.get('status'), '☐')} {m['requirement']}" for m in compliance]
+        or ["  (none)"]
+    )
+    if summary.get("compliance_pending"):
+        lines.append("  ☐ = not yet confirmed by a reviewer")
     lines.append("")
     lines.append("Stock figures are demo data.")
     return "\n".join(lines)

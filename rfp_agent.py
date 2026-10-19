@@ -87,7 +87,7 @@ RFP text (part {part} of {parts}):
 {context}
 """.strip()
 
-_WEIGHTS = {"mandatory": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0}
+CRITICALITY_WEIGHTS = {"mandatory": 4.0, "high": 3.0, "medium": 2.0, "low": 1.0}
 
 
 class _Requirement(BaseModel):
@@ -99,7 +99,7 @@ class _Requirement(BaseModel):
     @classmethod
     def _known_criticality(cls, value: Any) -> str:
         value = str(value or "").strip().lower()
-        return value if value in _WEIGHTS else "medium"
+        return value if value in CRITICALITY_WEIGHTS else "medium"
 
     @field_validator("quantity", mode="before")
     @classmethod
@@ -183,7 +183,7 @@ def _extract_requirements(
                 "id":          f"R{len(requirements) + 1}",
                 "requirement": text,
                 "criticality": req.criticality,
-                "weight":      _WEIGHTS[req.criticality],
+                "weight":      CRITICALITY_WEIGHTS[req.criticality],
                 "quantity":    req.quantity,
             }
             seen[key] = item

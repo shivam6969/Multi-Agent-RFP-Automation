@@ -103,8 +103,9 @@ class MatchingAgentTests(unittest.TestCase):
         # Product weights: R1.1 2, R1.2 2, R2 3 matched; R4 1 gap → 7 / 8.
         self.assertEqual(out["fulfillment_score"], 87.5)
         self.assertEqual(out["match_summary"], {
-            "fulfillment_score": 87.5, "product_items": 4, "matched": 2,
-            "needs_review": 1, "gaps": 1, "compliance_pending": 1,
+            "fulfillment_score": 87.5, "product_items": 4, "matched": 2, "approved": 0,
+            "needs_review": 1, "gaps": 1, "rejected": 0,
+            "compliance_pending": 1, "compliance_met": 0, "compliance_not_met": 0,
         })
         self.assertIn("Fulfillment score: 87.5%", out["fulfillment_report"])
         self.assertIn("Provide GST registration", out["fulfillment_report"])
