@@ -35,6 +35,7 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `product_matcher.py` catalogue candidates with reranker scores (calibrated: real products 0.55-0.99, unrelated 0.00; thresholds `MATCH_*` in settings), LLM pick by id (validated), atomise compound requirements.
 - Matching: classify → atomise → per-item match in parallel. Each matched item has id (R1, R1.2…), type product|compliance, status matched|needs_review|gap, product_id, match_score, confidence, alternatives, demo stock. Compliance items are not auto-assessed (status needs_review). `fulfillment_score` covers product items only.
 - RFP extraction reads the whole PDF in `RFP_EXTRACT_WINDOW_CHARS` windows (parallel), dedupes, assigns ids R1…; per-window failures go to state `warnings`.
+- Statuses after review: product items approved | rejected (plus matched | needs_review | gap from matching); compliance items met | not_met | needs_review. `matching_agent.apply_product()` attaches a product (used by matching and by the reviewer's "change"). Reviewer quantities set `qty_reviewed` → `qty_source: "reviewer"`.
 - Pricing makes NO LLM calls: it prices `matched_items[*].product_id` from the DB. Quantity has a `qty_source` (rfp | requirement | query | default).
 - `tests/` unit tests (offline; `tests/__init__.py` blanks API keys) and `run_*.py` manual runners
 - `data/catalogue/` Havells catalogue (`havells.json`, small/large chunk files); `data/samples/sample_rfp.pdf` the one real sample RFP
@@ -51,7 +52,7 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 6. ~~Embeddings rebuilt on every start.~~ Fixed in M2: `embedding_cache.py` stores document embeddings in `var/cache/embeddings/` keyed by model + exact texts; models are loaded once and shared (`models.py`). Remaining start-up (~15 s) is loading PyTorch and the models, paid once per process.
 7. ~~Matching sequential.~~ Fixed: per-item matching runs in a thread pool (`LLM_MAX_CONCURRENCY`, default 4).
 8. ~~Regex JSON parsing.~~ Fixed for extraction, classification, atomising and product picks: `llm_json.chat_json()` validates against pydantic schemas and retries once. (Router and synthesis return free text and don't need it.)
-9. Graph runs straight through with no pause points. Use LangGraph interrupts plus a checkpointer for human review.
+9. ~~No pause points.~~ Fixed: `workflow.py` (separate graph from master_agent's Q&A graph) pauses with `interrupt()` at requirements_review, matching_review, pricing_review; SqliteSaver at `var/checkpoints.db` (`SYNAPSE_CHECKPOINT_DB_PATH`). `ProjectWorkflow.start/resume/retry/status`; decisions are pydantic models (`DECISION_SCHEMAS`) and are dry-run applied before resuming so bad input never advances the graph. Review nodes must have no side effects before `interrupt()` (they re-run on resume).
 10. `_open_pdf` in master_agent.py uses `os.startfile` (Windows only); remove from library code.
 11. Agents print banner output; move to logging so an API/UI can capture progress.
 

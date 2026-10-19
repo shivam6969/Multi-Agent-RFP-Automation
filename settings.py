@@ -105,6 +105,15 @@ FULFILLMENT_CACHE_PATH: str = str(PROJECT_ROOT / ".rfp_fulfillment_cache.json")
 # Rebuilt automatically from BU_JSON_PATH whenever that file changes.
 DB_PATH: str = os.environ.get("SYNAPSE_DB_PATH", str(VAR_DIR / "synapse.db"))
 
+# LangGraph checkpoints for the review workflow (one thread per project).
+# Kept in its own file so graph writes never block catalogue/app queries.
+CHECKPOINT_DB_PATH: str = os.environ.get(
+    "SYNAPSE_CHECKPOINT_DB_PATH", str(VAR_DIR / "checkpoints.db")
+)
+
+# Generated proposal PDFs, one folder per project.
+PROPOSALS_DIR: str = os.environ.get("SYNAPSE_PROPOSALS_DIR", str(VAR_DIR / "proposals"))
+
 # Stock figures are synthetic (no real company data). The seed makes every
 # laptop generate the same numbers; the UI must label them as demo data.
 DEMO_STOCK_SEED: int = 2026

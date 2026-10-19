@@ -17,6 +17,10 @@ class AgentState(TypedDict, total=False):
     # ── Input ─────────────────────────────────────────────────────────────────
     user_query: str                        # raw question / instruction from user
     rfp_pdf_path: str                      # RFP to analyse; default settings.RFP_PDF_PATH
+    project_id: str                        # review workflow: one LangGraph thread per project
+
+    # ── Human review (workflow.py) ────────────────────────────────────────────
+    review_log: List[Dict[str, Any]]       # [{stage, at, reviewer, note, changes}]
 
     # ── RFP RAG outputs ───────────────────────────────────────────────────────
     rfp_answer: str                        # direct answer from RFP RAG

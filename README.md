@@ -253,6 +253,41 @@ print(response)
 
 ---
 
+## Review Workflow (human-in-the-loop)
+
+`workflow.py` runs one RFP as a *project* that pauses for a human at three points:
+
+```
+extract requirements → ⏸ review requirements → match products → ⏸ review matches
+  → price → ⏸ review pricing → proposal PDF
+```
+
+Progress is saved after every step in `var/checkpoints.db`, so a review can be
+finished later, even after a restart. The dashboard will drive this; until then
+you can try it from the terminal:
+
+```bash
+python workflow.py start --rfp data/samples/sample_rfp.pdf --id demo
+python workflow.py status demo
+python workflow.py approve demo                         # approve as-is
+python workflow.py approve demo --decision edits.json   # approve with changes
+python workflow.py retry demo                           # re-run a failed step
+```
+
+Example `edits.json` at the matching review:
+
+```json
+{"decisions": [
+  {"id": "R4", "action": "change", "product_id": "<id from alternatives>"},
+  {"id": "R7", "action": "reject"},
+  {"id": "R12", "action": "confirm"}
+], "accept_all": true}
+```
+
+At the pricing review: `{"margin_pct": 18, "advance_payment": true, "freight_inr": 1500, "quantities": {"R1": 400}}`.
+
+---
+
 ## Running Tests
 
 Unit tests run offline: every LLM call is mocked, and the test package blanks the API keys so an unmocked call fails instead of spending credit.
