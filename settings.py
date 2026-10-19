@@ -24,6 +24,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = PROJECT_ROOT / "data"
 CATALOGUE_DIR: Path = DATA_DIR / "catalogue"
 SAMPLES_DIR: Path = DATA_DIR / "samples"
+VAR_DIR: Path = PROJECT_ROOT / "var"   # gitignored runtime data
 
 if load_dotenv is not None:
     load_dotenv(PROJECT_ROOT / ".env")
@@ -73,6 +74,17 @@ RFP_TOP_K: int = 3
 FULFILLMENT_CACHE_PATH: str = str(PROJECT_ROOT / ".rfp_fulfillment_cache.json")
 
 
+# ─── Database ─────────────────────────────────────────────────────────────────
+
+# SQLite file holding the catalogue, demo stock and (later) users and projects.
+# Rebuilt automatically from BU_JSON_PATH whenever that file changes.
+DB_PATH: str = os.environ.get("SYNAPSE_DB_PATH", str(VAR_DIR / "synapse.db"))
+
+# Stock figures are synthetic (no real company data). The seed makes every
+# laptop generate the same numbers; the UI must label them as demo data.
+DEMO_STOCK_SEED: int = 2026
+
+
 # ─── Pricing defaults ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -90,8 +102,9 @@ class PricingRules:
     gst_rate_pct: float = 18.0             # GST applied on top of net price
     currency: str = "INR"
     rounding_digits: int = 2
-    freight_flat_inr: float = 0.0          # 0 = buyer pays, >0 = included
-    payment_terms_discount_pct: float = 2.0  # extra discount for advance payment
+    freight_flat_inr: float = 0.0          # 0 = buyer pays, >0 = added to the quote (GST applies)
+    payment_terms_discount_pct: float = 2.0  # extra discount on goods value if the buyer pays in advance
+    default_qty: int = 100                 # used when the RFP states no quantity; flagged for review
 
 
 PRICING_RULES = PricingRules()

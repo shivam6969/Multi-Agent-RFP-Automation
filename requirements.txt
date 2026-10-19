@@ -10,3 +10,4 @@ numpy==2.5.4
 google-genai==2.29.0
 reportlab==5.0.1
 python-dotenv==1.1.1
+SQLAlchemy==2.0.55
