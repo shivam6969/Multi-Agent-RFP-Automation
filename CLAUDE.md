@@ -29,14 +29,18 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `pricing_agent.py` filter/atomise requirements, pull price/qty, apply margin, volume tier, GST; `reprice_with_margin()` reprices without re-retrieval
 - `report_agent.py` Gemini drafts text, reportlab renders PDF
 - `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
-- `tests/` unit tests and `run_*.py` manual runners
+- `tests/` unit tests (offline; `tests/__init__.py` blanks API keys) and `run_*.py` manual runners
+- `data/catalogue/` Havells catalogue (`havells.json`, small/large chunk files); `data/samples/sample_rfp.pdf` the one real sample RFP
+- `var/` (gitignored) runtime output: database, uploads, index cache, generated proposals
+- `legacy/gem_scraper/` teammate's original standalone scraper, kept for reference only
+- `.env.example` template; real keys go in `.env` (gitignored), loaded by `settings.py` via python-dotenv
 
 ## Known issues found in review (fix early)
-1. README is out of date: says Groq; code uses OpenRouter. README volume tiers (1-99 / 100-499) differ from `settings.py` (1-199 0%, 200-499 5%, 500-999 8%, 1000+ 12%). Treat code as truth.
-2. RFP PDF path is a fixed setting (`Untitled document.pdf`, not in the repo). `get_rfp_rag_tool` and `get_bu_rag_tool` are module-level singletons, so only one RFP and one catalogue per process. Needs per-RFP instances for a multi-RFP product.
-3. API keys come from env vars or by editing `settings.py`; `.env` is gitignored but nothing loads it. Add python-dotenv and a config layer.
-4. `requirements.txt` is unpinned. Pin versions.
-5. `.gitignore` ignores `venv/` but not `.venv/`.
+1. ~~README out of date (Groq, wrong volume tiers).~~ Fixed in M0. Volume tiers in code: 1-199 0%, 200-499 5%, 500-999 8%, 1000+ 12%.
+2. `get_rfp_rag_tool` and `get_bu_rag_tool` are module-level singletons, so only one RFP and one catalogue per process. Needs per-RFP instances. (RFP path now defaults to `data/samples/sample_rfp.pdf`, overridable via `RFP_PDF_PATH` in `.env`.)
+3. ~~No `.env` loading.~~ Fixed in M0: `settings.py` loads `.env`; no keys in code.
+4. ~~`requirements.txt` unpinned.~~ Fixed in M0 (pinned, Python 3.12).
+5. ~~`.gitignore` missing `.venv/`.~~ Fixed in M0.
 6. Embeddings and FAISS indexes rebuild on every start (8-15 s). Cache them.
 7. Matching runs one LLM call per requirement sequentially. Parallelise.
 8. LLM JSON is parsed with regex fallbacks; add schema validation.
@@ -45,7 +49,7 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 11. Agents print banner output; move to logging so an API/UI can capture progress.
 
 ## Discovery agent (scraper) notes
-Lives outside this repo in the teammate's folder; bring it in as `discovery/`.
+The original code is in `legacy/gem_scraper/` (reference only). The new Discovery Agent will be a fresh `discovery/` package with swappable sources: generated sample RFPs + PDF upload (default), GeM scraper adapter off by default (the team believes GeM does not allow scraping).
 - `z.py`: minimal Selenium script, `ELECTRICAL_KEYWORDS` is empty and the download path is hardcoded to a personal Windows path.
 - `scraper/rfp_agent.py` (904 lines): Streamlit app with keyword list, headless Chrome scraping of `https://bidplus.gem.gov.in/all-bids`, pdfplumber text extraction, regex analysis, stock comparison, session JSON, Move Forward / Hold cards. **Its filename clashes with the repo's `rfp_agent.py`**; rename on import.
 - `scraper/rfp_extractor.py`, `app.py` (Flask), `streamlit_app.py`: earlier variants; consolidate.
@@ -63,6 +67,7 @@ Lives outside this repo in the teammate's folder; bring it in as `discovery/`.
 ```
 python -m venv venv && venv\Scripts\activate   # Windows
 pip install -r requirements.txt
+copy .env.example .env                           # then add your keys
 python master_agent.py "What are the eligibility criteria in the RFP?"
-python -m unittest tests/test_pricing_agent.py -v
+python -m unittest discover -s tests -t . -v     # offline, 12 tests
 ```

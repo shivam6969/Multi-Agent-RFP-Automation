@@ -78,7 +78,7 @@ Quotation/PDF generator should consume this payload directly.
 
 ## Testing (step by step)
 
-Use these checks in order: **unit tests first** (fast, no API key), then **full pipeline** (needs Groq and catalog/RFP data).
+Use these checks in order: **unit tests first** (fast, no API key), then **full pipeline** (needs an OpenRouter key and the catalog/RFP data).
 
 ### Prerequisites
 
@@ -89,39 +89,19 @@ Use these checks in order: **unit tests first** (fast, no API key), then **full 
    python -m pip install -r requirements.txt
    ```
 
-3. For **full pipeline** runs only, set your Groq API key.
-
-   - **Windows PowerShell:**
-
-     ```powershell
-     $env:GROQ_API_KEY = "your-key-here"
-     ```
-
-   - **Windows CMD:**
-
-     ```cmd
-     set GROQ_API_KEY=your-key-here
-     ```
-
-   - **macOS / Linux:**
-
-     ```bash
-     export GROQ_API_KEY=your-key-here
-     ```
-
-   You can also rely on `GROQ_API_KEY` in the environment if your IDE already sets it.
+3. For **full pipeline** runs only, copy `.env.example` to `.env` and set `OPENROUTER_API_KEY` (see "API keys" below).
 
 ### 1) Unit tests (recommended first)
 
-Proves **margin repricing**, **rounding**, and **CSV export** without loading BU/RFP indexes or calling Groq.
+Proves **margin repricing**, **rounding**, and **CSV export** without loading BU/RFP indexes or calling an LLM.
 
 From repo root:
 
 ```bash
-python -m unittest tests/test_pricing_agent.py -v
+python -m unittest tests.test_pricing_agent -v
 ```
 
-Expected: **3 tests**, all **OK**.
+Expected: **3 tests**, all **OK**. Run the whole offline suite with `python -m unittest discover -s tests -t . -v`.
 
 ### 2) Quick repricing sanity check (optional)
 
@@ -135,7 +115,7 @@ python -c "from pricing_agent import reprice_with_margin; from settings import P
 
 This exercises **router → RFP → matching → pricing → synthesis**. First run may be **slow** (embedding/rerank models may download; BU RAG loads indexes).
 
-From repo root, with `GROQ_API_KEY` set:
+From repo root, with `OPENROUTER_API_KEY` set in `.env`:
 
 ```bash
 python master_agent.py "Give me pricing and a quote for all matched RFP requirements"
@@ -147,8 +127,8 @@ python master_agent.py "Give me pricing and a quote for all matched RFP requirem
 
 Requirements for this to behave well:
 
-- `Untitled document.pdf` (or whatever `RFP_PDF_PATH` points to in `settings.py`) must exist for RFP steps.
-- BU data files (`havelsdata.json`, chunk `.txt` files) must exist as configured in `settings.py`.
+- `data/samples/sample_rfp.pdf` (or whatever `RFP_PDF_PATH` points to) must exist for RFP steps.
+- BU data files (`data/catalogue/havells.json` and the chunk `.txt` files) must exist.
 
 ### 4) CSV export only
 
@@ -160,28 +140,28 @@ python -c "from quote_export import export_quote_csv; p = export_quote_csv({'lin
 
 Open `quote_out.csv` in Excel or any spreadsheet app and confirm columns and values.
 
-### Groq API key (for CLI / full pipeline)
+### API keys (for CLI / full pipeline)
 
-This project talks to **Groq’s hosted LLM API**. You do **not** “create an API” in code for that—you **create an API key** on Groq’s site and put it in the environment as `GROQ_API_KEY`.
+This project calls LLMs through **OpenRouter** (all agents) and **Gemini** (proposal text only).
 
-1. Open [Groq Console](https://console.groq.com/) and sign in (or create an account).
-2. Go to **API Keys** and create a new key.
-3. Copy the key. In PowerShell for one session:
+1. Create a key at [openrouter.ai/keys](https://openrouter.ai/keys) (and a Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) if you need the PDF).
+2. Copy `.env.example` to `.env` in the repo root and paste the keys:
 
-   ```powershell
-   $env:GROQ_API_KEY = "paste-your-key-here"
+   ```
+   OPENROUTER_API_KEY=paste-your-key-here
+   GEMINI_API_KEY=paste-your-key-here
    ```
 
-4. Run the pipeline:
+3. Run the pipeline:
 
    ```powershell
    python master_agent.py "Give me pricing and a quote for all matched RFP requirements"
    ```
 
-Optional: put the key in `settings.py` only for local testing (not recommended for shared repos)—the code already falls back to `GROQ_API_KEY` from `settings.py` if the env var is missing.
+Never put keys in `settings.py` or any other committed file; `.env` is gitignored.
 
 ### Troubleshooting
 
 - **`ModuleNotFoundError`:** run `python -m pip install -r requirements.txt` in the same Python you use to run tests.
-- **Groq / API errors on full run:** confirm `GROQ_API_KEY` is set in the **same** terminal session.
+- **`OPENROUTER_API_KEY is not set`:** check `.env` exists in the repo root and contains the key.
 - **Long first run:** model download and FAISS index build are normal; later runs are faster.

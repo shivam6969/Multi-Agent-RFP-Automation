@@ -1,9 +1,12 @@
-openai
-langgraph
-langchain-core
-sentence-transformers
-faiss-cpu
-PyMuPDF
-numpy
-google-genai
-reportlab
+# Pinned to the versions verified working on Python 3.12 (Windows).
+openai==3.29.0
+langgraph==1.2.14
+langchain-core==1.6.10
+sentence-transformers==6.1.0
+torch==2.14.1
+faiss-cpu==1.15.1
+PyMuPDF==1.28.2
+numpy==2.5.4
+google-genai==2.29.0
+reportlab==5.0.1
+python-dotenv==1.1.1

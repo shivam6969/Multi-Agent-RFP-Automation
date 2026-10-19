@@ -1,5 +1,10 @@
 # Virtual environment
 venv/
+.venv/
+
+# Runtime data (database, uploads, index cache, generated proposals)
+var/
+vendor_proposal_*.pdf
 
 # Python cache
 __pycache__/

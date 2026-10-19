@@ -30,7 +30,7 @@ Given an RFP PDF and a product catalog, the system can answer questions such as:
 - *"Which of our products can fulfil the RFP requirements?"*
 - *"Generate a priced quotation for all matched requirements."*
 
-The system is built on **LangGraph** for multi-agent orchestration, **Groq** as the LLM backend (Meta Llama 4 Scout), and **FAISS + sentence-transformers** for retrieval-augmented generation (RAG).
+The system is built on **LangGraph** for multi-agent orchestration, **OpenRouter** as the LLM backend (Meta Llama 4 Scout), **Gemini** for proposal text, and **FAISS + sentence-transformers** for retrieval-augmented generation (RAG).
 
 ---
 
@@ -121,31 +121,34 @@ Classifies the incoming user query into one of six route labels using the LLM at
 ├── report_agent.py          # Proposal generator node — Gemini + PDF rendering
 ├── bu_rag.py                # BU product catalog RAG tool (hybrid search + rerank)
 ├── rfp_rag.py               # RFP PDF RAG tool (FAISS + section chunking)
-├── llm.py                   # Thin Groq client wrapper used by all agents
+├── llm.py                   # Thin OpenRouter client wrapper used by all agents
 ├── state.py                 # Shared AgentState TypedDict
 ├── settings.py              # Central configuration (models, paths, pricing rules)
 ├── quote_export.py          # CSV export helper for quote payloads
-├── requirements.txt         # Python dependencies
-├── havelsdata.json          # Structured product catalog (JSON)
-├── havells_small_chunks (1).txt  # Fine-grained catalog text chunks
-├── havells_large_chunks.txt      # Broad catalog text chunks
-├── Untitled document.pdf    # RFP document (replace with your own)
+├── requirements.txt         # Python dependencies (pinned)
+├── .env.example             # Template for your local .env (API keys)
+├── data/
+│   ├── catalogue/
+│   │   ├── havells.json              # Structured product catalog (JSON)
+│   │   ├── havells_small_chunks.txt  # Fine-grained catalog text chunks
+│   │   └── havells_large_chunks.txt  # Broad catalog text chunks
+│   └── samples/
+│       └── sample_rfp.pdf   # Sample RFP (ABC Infrastructure, modular switches)
 ├── docs/
+│   ├── design/              # UI design screens for the v2 dashboard
 │   └── pricing-agent.md     # Detailed pricing agent guide
-├── flow_charts/
-│   ├── master_agent_pipeline_flow.svg
-│   ├── report_agent_generation_flow_v2.svg
-│   └── ...                  # Additional architecture diagrams
-└── tests/
-    └── test_pricing_agent.py  # Unit tests for repricing and CSV export
+├── legacy/
+│   └── gem_scraper/         # Original standalone GeM scraper (reference only)
+└── tests/                   # Unit tests (offline, LLM calls mocked)
 ```
 
 ---
 
 ## Prerequisites
 
-- Python 3.9 or later
-- A [Groq API key](https://console.groq.com/) (free tier available)
+- Python 3.12 (the pinned versions are tested on 3.12)
+- An [OpenRouter API key](https://openrouter.ai/keys)
+- A [Gemini API key](https://aistudio.google.com/apikey) for proposal PDF generation
 
 ---
 
@@ -171,38 +174,33 @@ pip install -r requirements.txt
 
 ## Configuration
 
-All configuration lives in **`settings.py`**. The most important settings are:
+### Setting API keys
+
+Keys are never stored in code. Copy the template and fill in your keys:
+
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
+```
+
+```
+OPENROUTER_API_KEY=your-openrouter-key
+GEMINI_API_KEY=your-gemini-key
+```
+
+`.env` is gitignored. Environment variables with the same names also work and take precedence.
+
+### Other settings
+
+Paths, models and pricing rules live in **`settings.py`**. Paths are resolved from the project folder, so commands work from any directory.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `GROQ_API_KEY` | `"YOUR_GROQ_API_KEY_HERE"` | Groq API key — prefer the `GROQ_API_KEY` env var |
-| `LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq-hosted LLM |
-| `GEMINI_API_KEY` | `""` | Gemini API key used by `report_agent.py` for proposal generation |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model used for proposal text generation |
-| `RFP_PDF_PATH` | `"Untitled document.pdf"` | Path to your RFP PDF |
-| `BU_SMALL_CHUNKS_PATH` | `"havells_small_chunks (1).txt"` | Fine-grained catalog chunks |
-| `BU_LARGE_CHUNKS_PATH` | `"havells_large_chunks.txt"` | Broad catalog chunks |
-| `BU_JSON_PATH` | `"havelsdata.json"` | Structured catalog JSON |
-
-### Setting API keys
-
-```bash
-# macOS / Linux
-export GROQ_API_KEY="your-key-here"
-
-# Windows PowerShell
-$env:GROQ_API_KEY = "your-key-here"
-
-# Windows CMD
-set GROQ_API_KEY=your-key-here
-```
-
-```bash
-# Gemini (required for "report" route / proposal PDF generation)
-export GEMINI_API_KEY="your-gemini-key-here"
-```
-
-Alternatively, paste your key directly into `settings.py` (not recommended for shared repositories).
+| `LLM_MODEL` | `meta-llama/llama-4-scout` | OpenRouter model (override in `.env`) |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | Gemini model for proposal text (override in `.env`) |
+| `RFP_PDF_PATH` | `data/samples/sample_rfp.pdf` | RFP PDF used by the CLI (override in `.env`) |
+| `BU_SMALL_CHUNKS_PATH` | `data/catalogue/havells_small_chunks.txt` | Fine-grained catalog chunks |
+| `BU_LARGE_CHUNKS_PATH` | `data/catalogue/havells_large_chunks.txt` | Broad catalog chunks |
+| `BU_JSON_PATH` | `data/catalogue/havells.json` | Structured catalog JSON |
 
 ---
 
@@ -249,13 +247,13 @@ print(response)
 
 ## Running Tests
 
-Unit tests cover repricing logic, rounding correctness, and CSV export — no API key or data files needed.
+Unit tests run offline: every LLM call is mocked, and the test package blanks the API keys so an unmocked call fails instead of spending credit.
 
 ```bash
-python -m unittest tests/test_pricing_agent.py -v
+python -m unittest discover -s tests -t . -v
 ```
 
-Expected output: **3 tests, all OK**.
+Expected output: **12 tests, all OK**.
 
 ---
 
@@ -300,15 +298,15 @@ Pricing behaviour is controlled by the `PricingRules` dataclass in `settings.py`
 | `gst_rate_pct` | `18.0` | GST percentage (fixed, not adjustable by frontend) |
 | `currency` | `"INR"` | Quote currency |
 | `rounding_digits` | `2` | Decimal places for all monetary values |
-| `freight_flat_inr` | `0.0` | Flat freight charge (0 = buyer pays) |
-| `payment_terms_discount_pct` | `2.0` | Extra discount for advance payment |
+| `freight_flat_inr` | `0.0` | Flat freight charge (0 = buyer pays). *Not yet applied by the pricing agent.* |
+| `payment_terms_discount_pct` | `2.0` | Extra discount for advance payment. *Not yet applied by the pricing agent.* |
 
-**Volume discount tiers** (qty → discount %):
+**Volume discount tiers** (qty → discount %), applied after margin and before GST:
 
 | Quantity range | Discount |
 |---------------|----------|
-| 1 – 99 | 0% |
-| 100 – 499 | 5% |
+| 1 – 199 | 0% |
+| 200 – 499 | 5% |
 | 500 – 999 | 8% |
 | 1 000 + | 12% |
 
@@ -328,8 +326,8 @@ updated_items, summary = reprice_with_margin(line_items, new_margin_pct=15.0, ru
 | Symptom | Fix |
 |---------|-----|
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` in the active virtual environment |
-| `ValueError: GROQ_API_KEY is not set` | Export `GROQ_API_KEY` in the same terminal session |
-| `GEMINI_API_KEY is not set` | Export `GEMINI_API_KEY` before running proposal/report generation queries |
-| `FileNotFoundError` for PDF or catalog files | Check `RFP_PDF_PATH` and BU paths in `settings.py` match the actual file names |
+| `ValueError: OPENROUTER_API_KEY is not set` | Add it to `.env` in the project root (see `.env.example`) |
+| `GEMINI_API_KEY is not set` | Add it to `.env` before running proposal/report generation queries |
+| `FileNotFoundError` for PDF or catalog files | Check the files exist under `data/` and that any `RFP_PDF_PATH` override in `.env` is correct |
 | Slow first run | Normal — embedding and reranker models are downloaded and cached on first use |
-| Groq API errors | Verify the key is valid at [console.groq.com](https://console.groq.com/) and that you have remaining quota |
+| OpenRouter API errors | Verify the key at [openrouter.ai/keys](https://openrouter.ai/keys) and that you have remaining credit |
