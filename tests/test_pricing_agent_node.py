@@ -1,117 +1,78 @@
 from __future__ import annotations
 
-import json
-import re
 import unittest
 from unittest.mock import patch
 
-from catalogue import get_catalogue
 from pricing_agent import pricing_agent_node
+from tests.fake_catalogue_search import product
+
+SWITCH = product("Coral Ebony", "16A 2Way Switch")
+TV = product("Coral Ebony", "TV Socket")
+
+MATCHED_ITEMS = [
+    {"id": "R1", "requirement": "Supply 16A 2Way switches", "type": "product", "matched": True,
+     "status": "matched", "product_id": SWITCH.id, "qty": 300, "rationale": "16A 2-way"},
+    {"id": "R2", "requirement": "Supply TV sockets", "type": "product", "matched": True,
+     "status": "needs_review", "product_id": TV.id},
+    {"id": "R3", "requirement": "Supply garden hoses", "type": "product", "matched": False,
+     "status": "gap"},
+    {"id": "R4", "requirement": "Provide GST registration", "type": "compliance",
+     "matched": False, "status": "needs_review"},
+    {"id": "R5", "requirement": "Old-style item without a product", "matched": True},
+]
 
 
-def _product(range_name: str, item_name: str):
-    for p in get_catalogue().all_products():
-        if (p.range_name, p.item_name) == (range_name, item_name):
-            return p
-    raise KeyError(item_name)
-
-
-SWITCH = _product("Coral Ebony", "16A 2Way Switch")
-SOCKET = _product("Coral Ebony", "TV Socket")
-
-
-def _fake_chat(*, system: str, user: str, **_kwargs) -> str:
-    """Answer each of the pricing agent's LLM calls by which step is asking."""
-    if "classify procurement requirements" in system:
-        return json.dumps([
-            {"requirement": "Supply 16A 2Way switches, 300 units", "priceable": True},
-            {"requirement": "Supply TV sockets", "priceable": True},
-            {"requirement": "Supply garden hoses", "priceable": True},
-            {"requirement": "Provide GST registration", "priceable": False},
-        ])
-    if "split compound procurement requirements" in system:
-        return json.dumps([
-            "Supply 16A 2Way switches, 300 units",
-            "Supply TV sockets",
-            "Supply garden hoses",
-        ])
-    if "select catalogue products by id" in system:
-        item = re.search(r'RFP item: "(.*)"', user).group(1)
-        if "switch" in item:
-            return json.dumps({"product_id": SWITCH.id, "reason": "16A 2-way"})
-        if "TV" in item:
-            # An id that was NOT in the candidate list must be rejected.
-            return json.dumps({"product_id": "invented-id", "reason": "made up"})
-        return json.dumps({"product_id": None, "reason": "not a catalogue product"})
-    raise AssertionError(f"Unexpected LLM call: {system}")
-
-
-def _fake_candidates(query: str, top_k: int = 8):
-    if "switch" in query:
-        return [SWITCH, SOCKET]
-    if "TV" in query:
-        return [SOCKET]
-    return []
-
-
+@patch("llm_json.chat_completion", side_effect=AssertionError("pricing must not call an LLM"))
+@patch("llm.chat_completion", side_effect=AssertionError("pricing must not call an LLM"))
 class PricingAgentNodeTests(unittest.TestCase):
-    @patch("pricing_agent._candidate_products", side_effect=_fake_candidates)
-    @patch("pricing_agent.chat_completion", side_effect=_fake_chat)
-    def test_prices_come_from_catalogue_and_picks_are_validated(self, _chat, _cands):
-        state = {
-            "user_query": "Prepare a quote",
-            "margin_pct": 20.0,
-            "matched_items": [
-                {"requirement": "Supply 16A 2Way switches, 300 units", "matched": True, "weight": 3},
-                {"requirement": "Supply TV sockets", "matched": True, "weight": 2},
-                {"requirement": "Supply garden hoses", "matched": True, "weight": 1},
-                {"requirement": "Provide GST registration", "matched": True, "weight": 4},
-                {"requirement": "Unmatched thing", "matched": False, "weight": 1},
-            ],
-        }
+    def test_prices_come_from_the_catalogue(self, *_mocks) -> None:
+        out = pricing_agent_node({"user_query": "Prepare a quote", "margin_pct": 20.0,
+                                  "matched_items": MATCHED_ITEMS})
 
-        out = pricing_agent_node(state)
+        lines = {li["requirement_id"]: li for li in out["line_items"]}
+        self.assertEqual(set(lines), {"R1", "R2"})
 
-        # Only the switch is priced: the TV pick was invented, hoses have no product.
-        self.assertEqual(len(out["quoted_items"]), 3)
-        self.assertEqual(len(out["line_items"]), 1)
-        line = out["line_items"][0]
-        self.assertEqual(line["product_id"], SWITCH.id)
-        self.assertEqual(line["sap_code"], SWITCH.sap_code)
-        self.assertEqual(line["base_unit_price"], 191.0)
-        self.assertEqual(line["qty"], 300)
-        self.assertEqual(line["qty_source"], "requirement")
-        self.assertEqual(line["final_unit_price"], 256.93)
-        self.assertTrue(line["stock_is_demo"])
+        switch = lines["R1"]
+        self.assertEqual(switch["product_id"], SWITCH.id)
+        self.assertEqual(switch["sap_code"], SWITCH.sap_code)
+        self.assertEqual(switch["base_unit_price"], 191.0)
+        self.assertEqual((switch["qty"], switch["qty_source"]), (300, "rfp"))
+        self.assertEqual(switch["final_unit_price"], 256.93)
+        self.assertEqual(switch["match_status"], "matched")
 
+        tv = lines["R2"]
+        self.assertEqual(tv["base_unit_price"], 115.0)
+        self.assertEqual(tv["qty_source"], "default")
+
+        # The gap and the compliance item are not priced; the item without a
+        # product is listed as unpriced.
         unpriced = [q for q in out["quoted_items"] if q.get("catalog_cost_inr") is None]
-        self.assertEqual(len(unpriced), 2)
-        self.assertTrue(all(q["note"] == "No matching catalogue product" for q in unpriced))
+        self.assertEqual([q["requirement_id"] for q in unpriced], ["R5"])
+        self.assertEqual(unpriced[0]["note"], "No catalogue product selected")
 
         summary = out["pricing_summary"]
-        self.assertEqual(summary["items_count"], 1)
-        self.assertEqual(summary["grand_total"], round(256.93 * 300, 2))
-        self.assertIn("GRAND TOTAL", out["pricing_report"])
+        self.assertEqual(summary["items_count"], 2)
+        self.assertEqual(summary["qty_defaulted_count"], 1)
+        self.assertEqual(summary["grand_total"], round(switch["line_total"] + tv["line_total"], 2))
         self.assertIn("Provide GST registration", out["pricing_report"])
 
-    @patch("pricing_agent._candidate_products", side_effect=_fake_candidates)
-    @patch("pricing_agent.chat_completion", side_effect=_fake_chat)
-    def test_payment_terms_from_state(self, _chat, _cands):
-        state = {
-            "advance_payment": True,
-            "freight_inr": 1000.0,
-            "matched_items": [
-                {"requirement": "Supply 16A 2Way switches, 300 units", "matched": True, "weight": 3},
-            ],
-        }
-        out = pricing_agent_node(state)
+    def test_payment_terms_from_state(self, *_mocks) -> None:
+        out = pricing_agent_node({"advance_payment": True, "freight_inr": 1000.0,
+                                  "matched_items": MATCHED_ITEMS[:1]})
         summary = out["pricing_summary"]
         self.assertTrue(summary["advance_payment"])
         self.assertGreater(summary["payment_discount_value"], 0)
         self.assertEqual(summary["freight"], 1000.0)
         self.assertIn("Advance-payment discount", out["pricing_report"])
 
-    def test_no_matched_items(self):
+    def test_product_removed_from_catalogue(self, *_mocks) -> None:
+        item = {**MATCHED_ITEMS[0], "product_id": "no-longer-exists"}
+        out = pricing_agent_node({"matched_items": [item]})
+        self.assertEqual(out["line_items"], [])
+        self.assertEqual(out["quoted_items"][0]["note"],
+                         "Selected product is no longer in the catalogue")
+
+    def test_no_matched_items(self, *_mocks) -> None:
         out = pricing_agent_node({"matched_items": []})
         self.assertEqual(out["line_items"], [])
         self.assertEqual(out["pricing_summary"]["grand_total"], 0.0)

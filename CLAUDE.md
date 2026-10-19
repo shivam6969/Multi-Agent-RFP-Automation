@@ -31,7 +31,11 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
 - `db.py` SQLAlchemy models + engine (SQLite at `var/synapse.db`, override `SYNAPSE_DB_PATH`); `catalogue.py` loads the catalogue JSON into it (auto-reload on file change), parses prices, generates seeded demo stock, lookups by id/SAP. SAP codes are NOT unique (3 duplicates); use `product_id`.
 - `models.py` shared, thread-safe embedder/reranker instances (load once); `embedding_cache.py` disk cache for document embeddings (override dir with `SYNAPSE_CACHE_DIR`)
-- Pricing picks a product by id from `BuRagTool.search_products()` candidates; price/SAP/packing come from the DB. Quantity has a `qty_source` (rfp | requirement | query | default).
+- `llm_json.py` `chat_json()` = LLM call + JSON extraction + pydantic validation + one retry; raises `LLMOutputError`. In tests, patch `llm_json.chat_completion`.
+- `product_matcher.py` catalogue candidates with reranker scores (calibrated: real products 0.55-0.99, unrelated 0.00; thresholds `MATCH_*` in settings), LLM pick by id (validated), atomise compound requirements.
+- Matching: classify → atomise → per-item match in parallel. Each matched item has id (R1, R1.2…), type product|compliance, status matched|needs_review|gap, product_id, match_score, confidence, alternatives, demo stock. Compliance items are not auto-assessed (status needs_review). `fulfillment_score` covers product items only.
+- RFP extraction reads the whole PDF in `RFP_EXTRACT_WINDOW_CHARS` windows (parallel), dedupes, assigns ids R1…; per-window failures go to state `warnings`.
+- Pricing makes NO LLM calls: it prices `matched_items[*].product_id` from the DB. Quantity has a `qty_source` (rfp | requirement | query | default).
 - `tests/` unit tests (offline; `tests/__init__.py` blanks API keys) and `run_*.py` manual runners
 - `data/catalogue/` Havells catalogue (`havells.json`, small/large chunk files); `data/samples/sample_rfp.pdf` the one real sample RFP
 - `var/` (gitignored) runtime output: database, uploads, index cache, generated proposals
@@ -45,8 +49,8 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 4. ~~`requirements.txt` unpinned.~~ Fixed in M0 (pinned, Python 3.12).
 5. ~~`.gitignore` missing `.venv/`.~~ Fixed in M0.
 6. ~~Embeddings rebuilt on every start.~~ Fixed in M2: `embedding_cache.py` stores document embeddings in `var/cache/embeddings/` keyed by model + exact texts; models are loaded once and shared (`models.py`). Remaining start-up (~15 s) is loading PyTorch and the models, paid once per process.
-7. Matching runs one LLM call per requirement sequentially. Parallelise.
-8. LLM JSON is parsed with regex fallbacks; add schema validation.
+7. ~~Matching sequential.~~ Fixed: per-item matching runs in a thread pool (`LLM_MAX_CONCURRENCY`, default 4).
+8. ~~Regex JSON parsing.~~ Fixed for extraction, classification, atomising and product picks: `llm_json.chat_json()` validates against pydantic schemas and retries once. (Router and synthesis return free text and don't need it.)
 9. Graph runs straight through with no pause points. Use LangGraph interrupts plus a checkpointer for human review.
 10. `_open_pdf` in master_agent.py uses `os.startfile` (Windows only); remove from library code.
 11. Agents print banner output; move to logging so an API/UI can capture progress.

@@ -32,11 +32,14 @@ Optional inputs read from state: `margin_pct`, `advance_payment`, `freight_inr`.
 
 ## Where prices and quantities come from (v2)
 
-- **Price:** for each item, `bu_rag.search_products()` returns catalogue
-  candidates (embedding search + cross-encoder rerank). One LLM call picks a
-  candidate **by id**; an id not in the list is rejected. The unit price,
-  SAP code, HSN and packing are then read from the catalogue database
-  (`catalogue.py`). No price is ever parsed out of LLM text.
+- **Product:** chosen by the Matching Agent (`product_matcher.py`): catalogue
+  candidates with relevance scores, then one LLM call picks a candidate
+  **by id**; an id not in the list is rejected. Each matched item carries
+  `product_id`.
+- **Price:** the Pricing Agent makes **no LLM calls**. For every matched
+  product item it reads the unit price, SAP code, HSN and packing from the
+  catalogue database (`catalogue.py`) by `product_id`. No price is ever
+  parsed out of LLM text.
 - **Quantity** (`qty_source` on each line):
   `rfp` (quantity field extracted from the RFP) → `requirement` / `query`
   (an explicit "N units / pcs / nos" phrase) → `default`
