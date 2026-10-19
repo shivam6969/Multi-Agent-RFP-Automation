@@ -19,7 +19,7 @@ class AgentState(TypedDict, total=False):
 
     # ── RFP RAG outputs ───────────────────────────────────────────────────────
     rfp_answer: str                        # direct answer from RFP RAG
-    rfp_requirements: List[Dict[str, Any]] # structured list of {requirement, weight}
+    rfp_requirements: List[Dict[str, Any]] # [{requirement, criticality, weight, quantity?}]
 
     # ── Business-Unit RAG outputs ─────────────────────────────────────────────
     bu_answer: str                         # direct answer from BU RAG
@@ -28,6 +28,11 @@ class AgentState(TypedDict, total=False):
     matched_items: List[Dict[str, Any]]    # [{product, evidence, matched: bool}]
     fulfillment_score: float               # 0–100
     fulfillment_report: str                # human-readable match summary
+
+    # ── Pricing inputs (set by the user; all optional) ────────────────────────
+    margin_pct: float                      # chosen margin; default PricingRules.base_margin_pct
+    advance_payment: bool                  # apply PricingRules.payment_terms_discount_pct
+    freight_inr: float                     # flat freight; default PricingRules.freight_flat_inr
 
     # ── Pricing Agent outputs ─────────────────────────────────────────────────
     pricing_report: str                    # full pricing breakdown

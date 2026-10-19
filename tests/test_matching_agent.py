@@ -20,7 +20,7 @@ class MatchingAgentTests(unittest.TestCase):
         ]
         state = {
             "rfp_requirements": [
-                {"requirement": "Requirement A", "weight": 2},
+                {"requirement": "Requirement A", "weight": 2, "quantity": 250},
                 {"requirement": "Requirement B", "weight": 1},
             ]
         }
@@ -33,6 +33,8 @@ class MatchingAgentTests(unittest.TestCase):
         self.assertIn("Fulfillment score", out["fulfillment_report"])
         self.assertTrue(out["matched_items"][0]["is_product_sku"])
         self.assertFalse(out["matched_items"][1]["is_product_sku"])
+        self.assertEqual(out["matched_items"][0]["qty"], 250)
+        self.assertNotIn("qty", out["matched_items"][1])
 
 
 if __name__ == "__main__":

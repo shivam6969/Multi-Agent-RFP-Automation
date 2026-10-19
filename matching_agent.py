@@ -153,10 +153,14 @@ def _parse_requirements(raw: Any) -> List[Dict[str, Any]]:
         out = []
         for item in raw:
             if isinstance(item, dict) and "requirement" in item:
-                out.append({
+                parsed = {
                     "requirement": str(item["requirement"]).strip(),
                     "weight": float(item.get("weight", 1.0)),
-                })
+                }
+                qty = item.get("quantity", item.get("qty"))
+                if qty is not None:
+                    parsed["qty"] = qty
+                out.append(parsed)
         if out:
             return out
 
@@ -212,13 +216,16 @@ def matching_agent_node(state: AgentState) -> AgentState:
         sku_tag = "🏷 SKU" if req_type == "product_sku" else "📋 Compliance"
         print(f"[MatchingAgent]       → {icon}  {sku_tag}")
 
-        matched_items.append({
+        matched = {
             "requirement":    req,
             "weight":         weight,
             "matched":        is_match,
             "is_product_sku": req_type == "product_sku",
             "evidence":       evidence,
-        })
+        }
+        if "qty" in req_obj:
+            matched["qty"] = req_obj["qty"]
+        matched_items.append(matched)
         if is_match:
             matched_weight += weight
 

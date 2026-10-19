@@ -298,8 +298,11 @@ Pricing behaviour is controlled by the `PricingRules` dataclass in `settings.py`
 | `gst_rate_pct` | `18.0` | GST percentage (fixed, not adjustable by frontend) |
 | `currency` | `"INR"` | Quote currency |
 | `rounding_digits` | `2` | Decimal places for all monetary values |
-| `freight_flat_inr` | `0.0` | Flat freight charge (0 = buyer pays). *Not yet applied by the pricing agent.* |
-| `payment_terms_discount_pct` | `2.0` | Extra discount for advance payment. *Not yet applied by the pricing agent.* |
+| `freight_flat_inr` | `0.0` | Flat freight added to the quote, GST applies (0 = buyer pays) |
+| `payment_terms_discount_pct` | `2.0` | Discount on goods value when the buyer pays in advance (`advance_payment`) |
+| `default_qty` | `100` | Quantity used when the RFP states none; flagged `qty_source: "default"` for review |
+
+Unit prices come from the catalogue database (`catalogue.py`, loaded from `data/catalogue/havells.json` into `var/synapse.db`), never from LLM text. Stock figures are synthetic demo data.
 
 **Volume discount tiers** (qty → discount %), applied after margin and before GST:
 

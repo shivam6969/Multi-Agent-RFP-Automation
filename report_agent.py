@@ -466,8 +466,23 @@ def _pricing_table(story: list, styles: Dict, state: AgentState) -> None:
         
         rows.append(row)
 
-    # Totals row
+    # Payment-terms discount and freight (only when they apply)
     summary = state.get("pricing_summary") or {}
+    n_cols = len(headers)
+    if summary.get("payment_discount_value"):
+        rows.append(
+            [f"Advance-payment discount ({summary['payment_discount_pct']}%) incl. GST"]
+            + [""] * (n_cols - 2)
+            + [f"-{summary['payment_discount_incl_gst']:,.2f}"]
+        )
+    if summary.get("freight"):
+        rows.append(
+            ["Freight incl. GST"]
+            + [""] * (n_cols - 2)
+            + [f"{summary['freight_incl_gst']:,.2f}"]
+        )
+
+    # Totals row
     total_row = [
         "GRAND TOTAL", "", "", "", "", "", "", "",
         f"{summary.get('grand_total', 0):,.2f}",

@@ -70,6 +70,10 @@ Each object must have:
   - "requirement"  : short plain-English statement of the requirement
   - "criticality"  : "mandatory" | "high" | "medium" | "low"
   - "weight"       : numeric — mandatory=4, high=3, medium=2, low=1
+  - "quantity"     : integer number of units ONLY if the RFP states an explicit
+                     order quantity for this specific item, otherwise null.
+                     Do not use monthly supply estimates, packing formats or
+                     numbers that are part of a product name (e.g. "RJ-45").
 
 Return ONLY valid JSON. No markdown, no explanation.
 

@@ -28,15 +28,32 @@ The pricing node writes these fields:
 - `quote_payload`: integration contract for quotation/PDF step.
 - `quoted_items` and `pricing_report`: retained for backward compatibility.
 
+Optional inputs read from state: `margin_pct`, `advance_payment`, `freight_inr`.
+
+## Where prices and quantities come from (v2)
+
+- **Price:** for each item, `bu_rag.search_products()` returns catalogue
+  candidates (embedding search + cross-encoder rerank). One LLM call picks a
+  candidate **by id**; an id not in the list is rejected. The unit price,
+  SAP code, HSN and packing are then read from the catalogue database
+  (`catalogue.py`). No price is ever parsed out of LLM text.
+- **Quantity** (`qty_source` on each line):
+  `rfp` (quantity field extracted from the RFP) → `requirement` / `query`
+  (an explicit "N units / pcs / nos" phrase) → `default`
+  (`PricingRules.default_qty`, to be reviewed by a human). Numbers inside
+  product names such as "RJ-45" or "16A" are never treated as quantities.
+- **Stock:** `monthly_available`, `stock_on_hand`, `lead_time_days` are
+  synthetic demo figures (`stock_is_demo: true`).
+
 ## Core Functions
 
 In `pricing_agent.py`:
 
 - `generate_initial_pricing(...)`
-  - Builds initial line items from matched requirements + catalog prices.
-- `reprice_with_margin(...)`
-  - Recomputes totals from existing line items with a new user margin.
-  - Does not rerun retrieval.
+  - Builds initial line items from matched requirements + catalogue prices.
+- `reprice_with_margin(line_items, margin, rules, *, advance_payment=False, freight=None)`
+  - Recomputes lines and totals for a new margin / payment terms.
+  - Does not rerun retrieval or any LLM call; keeps catalogue fields on each line.
 
 In `quote_export.py`:
 
@@ -52,7 +69,15 @@ Configured in `settings.py` (`PricingRules`):
 - `gst_rate_pct` (fixed)
 - `currency`
 - `rounding_digits`
-- volume discount tiers
+- volume discount tiers (per line, after margin, before GST)
+- `payment_terms_discount_pct`: off the goods value when `advance_payment` is set
+- `freight_flat_inr`: flat freight added to the quote
+- `default_qty`: quantity used when the RFP states none
+
+Order of operations: per line, margin → volume discount → GST; then on the
+totals, minus the advance-payment discount, plus freight. GST is applied to
+(freight − discount) at the same rate. With neither, `grand_total` equals the
+sum of `line_total`.
 
 ## Frontend Integration
 

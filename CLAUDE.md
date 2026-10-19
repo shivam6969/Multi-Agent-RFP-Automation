@@ -29,6 +29,8 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `pricing_agent.py` filter/atomise requirements, pull price/qty, apply margin, volume tier, GST; `reprice_with_margin()` reprices without re-retrieval
 - `report_agent.py` Gemini drafts text, reportlab renders PDF
 - `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
+- `db.py` SQLAlchemy models + engine (SQLite at `var/synapse.db`, override `SYNAPSE_DB_PATH`); `catalogue.py` loads the catalogue JSON into it (auto-reload on file change), parses prices, generates seeded demo stock, lookups by id/SAP. SAP codes are NOT unique (3 duplicates); use `product_id`.
+- Pricing picks a product by id from `BuRagTool.search_products()` candidates; price/SAP/packing come from the DB. Quantity has a `qty_source` (rfp | requirement | query | default).
 - `tests/` unit tests (offline; `tests/__init__.py` blanks API keys) and `run_*.py` manual runners
 - `data/catalogue/` Havells catalogue (`havells.json`, small/large chunk files); `data/samples/sample_rfp.pdf` the one real sample RFP
 - `var/` (gitignored) runtime output: database, uploads, index cache, generated proposals
