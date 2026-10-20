@@ -288,6 +288,36 @@ At the pricing review: `{"margin_pct": 18, "advance_payment": true, "freight_inr
 
 ---
 
+## Dashboard (web UI)
+
+The dashboard is a React app in `frontend/` that talks to the backend API.
+
+**One-time setup** (needs [Node.js](https://nodejs.org) 18+):
+
+```bash
+cd frontend
+npm install
+npm run build        # creates frontend/dist
+cd ..
+```
+
+**Run it:**
+
+```bash
+python -m api        # then open http://127.0.0.1:8000
+```
+
+Create an account on the login page ("Create an account"), upload an RFP PDF
+(or use `data/samples/sample_rfp.pdf`), and follow the steps: Requirements →
+Product Matching → Pricing → Proposal. While the AI is working the page shows
+progress; you can leave and come back.
+
+**Working on the UI:** run `python -m api` in one terminal and `npm run dev` in
+`frontend/` in another, then open http://localhost:5173 (changes reload instantly;
+`/api` calls are forwarded to the backend).
+
+---
+
 ## Backend API (for the dashboard)
 
 ```bash
