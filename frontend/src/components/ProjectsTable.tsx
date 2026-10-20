@@ -34,10 +34,13 @@ export function StatusBadge({ project }: { project: ProjectSummary }) {
 export default function ProjectsTable({
   projects,
   showOutcome = false,
+  dateColumn = "updated",
   emptyText = "Nothing here yet.",
 }: {
   projects: ProjectSummary[];
   showOutcome?: boolean;
+  /** "generated" shows when the proposal was finished (History). */
+  dateColumn?: "updated" | "generated";
   emptyText?: string;
 }) {
   const navigate = useNavigate();
@@ -61,7 +64,7 @@ export default function ProjectsTable({
             <th className="px-4 py-3 font-medium">Reference</th>
             <th className="px-4 py-3 font-medium">Proposal</th>
             <th className="px-4 py-3 font-medium">Organization</th>
-            <th className="px-4 py-3 font-medium">Updated</th>
+            <th className="px-4 py-3 font-medium">{dateColumn === "generated" ? "Generated" : "Updated"}</th>
             <th className="px-4 py-3 font-medium">Value</th>
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3" />
@@ -77,8 +80,10 @@ export default function ProjectsTable({
               <td className="px-4 py-3 font-mono text-xs text-slate-500">{projectRef(p.id)}</td>
               <td className="max-w-xs truncate px-4 py-3 font-medium text-slate-800">{p.rfp.title}</td>
               <td className="px-4 py-3 text-slate-600">{p.rfp.buyer ?? "—"}</td>
-              <td className="px-4 py-3 text-slate-600">{formatDate(p.updated_at)}</td>
-              <td className="px-4 py-3 font-semibold text-slate-800">{formatINRShort(p.grand_total)}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                {formatDate(dateColumn === "generated" ? p.completed_at ?? p.updated_at : p.updated_at)}
+              </td>
+              <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">{formatINRShort(p.grand_total)}</td>
               <td className="px-4 py-3" onClick={(e) => showOutcome && p.stage === "done" && e.stopPropagation()}>
                 {showOutcome && p.stage === "done" ? (
                   <select

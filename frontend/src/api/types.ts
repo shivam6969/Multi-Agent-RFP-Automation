@@ -213,6 +213,7 @@ export interface ProjectSummary {
   proposal_available: boolean;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 }
 
 export interface Project extends ProjectSummary {
@@ -262,4 +263,60 @@ export interface Health {
   status: string;
   llm_key_configured: boolean;
   gemini_key_configured: boolean;
+}
+
+// GET /api/dashboard (api/routes_dashboard.py)
+export interface MonthCounts {
+  value: number;
+  this_month: number;
+  last_month: number;
+}
+
+export type ReminderStatus = "overdue" | "due_today" | "failed" | "pending" | "ready" | "upcoming";
+
+export interface Reminder {
+  kind: "start" | "review" | "failed" | "submit" | "outcome";
+  title: string;
+  status: ReminderStatus;
+  deadline: string | null;
+  rfp_id: string;
+  rfp_title: string;
+  project_id: string | null;
+}
+
+export interface DeadlineEntry {
+  date: string;
+  rfp_id: string;
+  title: string;
+  buyer: string | null;
+  project_id: string | null;
+  stage: Stage | null;
+  outcome: ProjectSummary["outcome"];
+}
+
+export interface PendingRfp {
+  rfp_id: string;
+  title: string;
+  buyer: string | null;
+  source: string;
+  deadline: string | null;
+  tag: "closing_soon" | "in_progress" | "new" | "open";
+  project_id: string | null;
+  stage: Stage | null;
+}
+
+export interface Dashboard {
+  today: string;
+  kpis: {
+    proposals_generated: MonthCounts;
+    awaiting_review: { value: number; urgent: number };
+    rfps_received: MonthCounts;
+    win_rate: { value: number | null; won: number; lost: number; awaiting_outcome: number; won_value: number };
+  };
+  reminders: Reminder[];
+  reminders_total: number;
+  deadlines: DeadlineEntry[];
+  activity: { month: string; generated: number; won: number }[];
+  pending_rfps: PendingRfp[];
+  pending_total: number;
 }

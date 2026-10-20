@@ -313,6 +313,14 @@ either **Find RFPs** (keywords, location, dates, budget) or **Upload a PDF** (e.
 Product Matching → Pricing → Proposal. While the AI is working the page shows
 progress; you can leave and come back.
 
+**Home** shows where things stand, worked out from your projects and RFPs (no AI):
+proposals generated, reviews waiting, RFPs received and win rate; reminders
+(deadlines today or passed, paused reviews, failed steps, proposals still to
+submit; also behind the bell icon); a deadline calendar; a six-month
+"Generated vs Won" chart; and the open RFPs, soonest deadline first.
+**Completed / History** lists finished proposals; set each one's status
+(Submitted / Won / Lost) as you hear back, and the win rate and chart follow.
+
 **Where RFPs come from (Discovery Agent, `discovery/`):**
 
 | Source | Default | What it does |
@@ -345,6 +353,7 @@ workflow progress), `uploads/`, `proposals/`, `exports/`.
 | Pricing | `POST /api/projects/{id}/pricing/preview` (margin slider, saves nothing), `GET /api/projects/{id}/quote.csv` |
 | Proposal / history | `GET /api/projects/{id}/proposal.pdf`, `PATCH /api/projects/{id}/outcome` `{submitted|won|lost}` |
 | Catalogue | `GET /api/catalogue/products?q=` ("Change Product" search) |
+| Dashboard | `GET /api/dashboard` (KPIs, reminders, deadlines, monthly activity, pending RFPs) |
 | Health | `GET /api/health` (whether API keys are configured; never the keys) |
 
 Starting a project or sending a review returns immediately (`stage: "running"`

@@ -1,4 +1,5 @@
 import {
+  Bell,
   Boxes,
   ChevronDown,
   FileCheck2,
@@ -13,11 +14,12 @@ import {
   Settings as SettingsIcon,
   User as UserIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { useHealth, useLogout, useMe } from "../api/hooks";
+import { useDashboard, useHealth, useLogout, useMe } from "../api/hooks";
 import { initials } from "../lib/format";
+import ReminderList, { URGENT } from "./Reminders";
 import { cx, Notice } from "./ui";
 
 const NAV = [
@@ -41,18 +43,51 @@ export function Logo({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** Close a dropdown when the user clicks anywhere outside it. */
+function useClickOutside(onOutside: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && onOutside();
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [onOutside]);
+  return ref;
+}
+
+function NotificationBell() {
+  const { data } = useDashboard();
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(useCallback(() => setOpen(false), []));
+  const urgent = data?.reminders.filter((r) => URGENT.includes(r.status)).length ?? 0;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-50"
+        title={urgent ? `${urgent} reminder${urgent === 1 ? "" : "s"} need attention` : "Reminders"}
+      >
+        <Bell className="h-5 w-5" />
+        {urgent > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand-500 ring-2 ring-white" />}
+      </button>
+      {open && data && (
+        <div className="absolute right-0 z-20 mt-1 w-96 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">Reminders</div>
+          <div className="max-h-96 overflow-y-auto">
+            <ReminderList reminders={data.reminders} today={data.today} compact onNavigate={() => setOpen(false)} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserMenu() {
   const { data: user } = useMe();
   const logout = useLogout();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
+  const ref = useClickOutside(useCallback(() => setOpen(false), []));
 
   if (!user) return null;
   return (
@@ -150,7 +185,8 @@ export default function Layout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-6">
+        <header className="flex h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-6">
+          <NotificationBell />
           <UserMenu />
         </header>
         <main className="flex-1 overflow-y-auto">

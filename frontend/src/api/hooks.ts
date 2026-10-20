@@ -6,6 +6,7 @@ import { api, ApiError, uploadPdf } from "./client";
 import type {
   CatalogueProduct,
   CompanyProfile,
+  Dashboard,
   DiscoverySearch,
   DiscoverySource,
   Health,
@@ -112,6 +113,14 @@ export function useProjects() {
   });
 }
 
+export function useDashboard() {
+  return useQuery<Dashboard>({
+    queryKey: ["dashboard"],
+    queryFn: () => api<Dashboard>("/api/dashboard"),
+    refetchInterval: 30_000,
+  });
+}
+
 export function useProject(id: string | undefined) {
   return useQuery<Project>({
     queryKey: ["project", id],
@@ -161,6 +170,7 @@ export function useSetOutcome() {
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["project", id] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }
