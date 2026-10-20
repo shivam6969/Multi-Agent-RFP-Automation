@@ -71,7 +71,7 @@ def report_agent_node(
         logger.exception("PDF rendering failed")
         return state
 
-    print(f"[ReportAgent] ✓ PDF ready: {path}")
+    logger.info("[ReportAgent] PDF ready: %s", path)
     state["report_pdf_path"] = path
     state["report_text"] = sections_as_text(sections)
     return state

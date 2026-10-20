@@ -30,4 +30,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    from log_setup import setup_logging
+
+    setup_logging()
     raise SystemExit(main())

@@ -29,6 +29,7 @@ Outputs written to state
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,6 +37,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from settings import PRICING_RULES, PricingRules
 from catalogue import ProductRecord, get_catalogue
 from state import AgentState
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Quantity ─────────────────────────────────────────────────────────────────
@@ -426,7 +429,7 @@ def pricing_agent_node(state: AgentState) -> AgentState:
         state["quote_payload"]   = _build_quote_payload(state, [], empty)
         return state
 
-    print(f"[PricingAgent] Pricing {len(to_price)} matched products from the catalogue …")
+    logger.info(f"[PricingAgent] Pricing {len(to_price)} matched products from the catalogue …")
     quoted_items, line_items = generate_initial_pricing(
         to_price, PRICING_RULES, user_query, margin_pct=margin_pct
     )
@@ -438,5 +441,5 @@ def pricing_agent_node(state: AgentState) -> AgentState:
     state["quote_payload"]   = _build_quote_payload(state, line_items, summary)
     state["pricing_report"]  = _format_report(quoted_items, PRICING_RULES, compliance_items, summary)
 
-    print(state["pricing_report"])
+    logger.info("\n%s", state["pricing_report"])
     return state

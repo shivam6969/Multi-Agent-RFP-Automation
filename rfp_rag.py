@@ -14,6 +14,7 @@ This file is intentionally free of agent logic — it is a pure data tool.
 
 from __future__ import annotations
 
+import logging
 import hashlib
 import re
 import threading
@@ -37,6 +38,8 @@ from embedding_cache import encode_cached
 from llm import chat_completion
 from models import get_embedder
 
+logger = logging.getLogger(__name__)
+
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -59,7 +62,7 @@ class RfpRagTool:
     def __init__(self, config: RfpRagConfig) -> None:
         self.config = config
 
-        print(f"[RfpRagTool] Loading embed model: {config.embed_model_name}")
+        logger.info(f"[RfpRagTool] Loading embed model: {config.embed_model_name}")
         self.embed_model = get_embedder(config.embed_model_name)
 
         raw_text = self._extract_text(config.pdf_path)
@@ -73,13 +76,13 @@ class RfpRagTool:
                 "If it is a scanned document, it needs OCR before it can be analysed."
             )
 
-        print(f"[RfpRagTool] Indexing {len(self.chunks)} chunks …")
+        logger.info(f"[RfpRagTool] Indexing {len(self.chunks)} chunks …")
         embeddings = encode_cached(self.embed_model, self.chunks)
 
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dim)
         self.index.add(embeddings)
-        print("[RfpRagTool] Ready.")
+        logger.info("[RfpRagTool] Ready.")
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

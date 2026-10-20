@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import webbrowser
+from pathlib import Path
 
 from report_agent import report_agent_node
 
@@ -15,11 +16,7 @@ def _prompt(label: str, fallback: str) -> str:
 def _open_pdf(path: str) -> None:
     if not path or not os.path.exists(path):
         return
-    try:
-        os.startfile(path)
-    except AttributeError:
-        pdf_url = "file:///" + os.path.abspath(path).replace("\\", "/")
-        webbrowser.open(pdf_url)
+    webbrowser.open(Path(path).resolve().as_uri())
 
 
 def main() -> int:
@@ -68,4 +65,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    from log_setup import setup_logging
+
+    setup_logging()
     raise SystemExit(main())

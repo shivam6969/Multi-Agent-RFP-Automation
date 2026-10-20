@@ -22,8 +22,10 @@ Run from the command line:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import webbrowser
+from pathlib import Path
 from langgraph.graph import END, StateGraph
 
 from state import AgentState
@@ -35,6 +37,7 @@ from matching_agent import matching_agent_node
 from pricing_agent import pricing_agent_node
 from report_agent import report_agent_node          # ← new
 
+logger = logging.getLogger(__name__)
 
 # ─── Router node ──────────────────────────────────────────────────────────────
 
@@ -78,10 +81,7 @@ def router_node(state: AgentState) -> AgentState:
         route = "full"
 
     state["route"] = route
-    print(f"\n[MasterAgent] ══ ROUTER DECISION ═══════════════════════════════")
-    print(f"[MasterAgent]   Query : {query[:120]}")
-    print(f"[MasterAgent]   Route : {route.upper()}")
-    print(f"[MasterAgent] ════════════════════════════════════════════════\n")
+    logger.info("[MasterAgent] Route %s for query: %s", route.upper(), query[:120])
     return state
 
 
@@ -134,9 +134,7 @@ def synthesise_node(state: AgentState) -> AgentState:
     # If only one section, skip the LLM synthesis — just return it directly
     if len(sections) <= 1:
         state["final_response"] = sections[0] if sections else "No results."
-        print(f"\n[MasterAgent] ══ FINAL RESPONSE (direct, no synthesis) ════════")
-        print(state["final_response"])
-        print(f"[MasterAgent] ════════════════════════════════════════════════\n")
+        logger.info("[MasterAgent] Final response (direct, no synthesis) ready")
         return state
 
     api_key = os.environ.get("OPENROUTER_API_KEY") or OPENROUTER_API_KEY
@@ -152,9 +150,7 @@ def synthesise_node(state: AgentState) -> AgentState:
         max_tokens=1200,
         api_key=api_key,
     )
-    print(f"\n[MasterAgent] ══ FINAL RESPONSE (synthesised) ═══════════════════")
-    print(state["final_response"])
-    print(f"[MasterAgent] ════════════════════════════════════════════════\n")
+    logger.info("[MasterAgent] Final response (synthesised) ready")
     return state
 
 
@@ -312,19 +308,17 @@ def run(query: str, rfp_pdf_path: str | None = None) -> str:
 
 
 def _open_pdf(path: str) -> None:
-    """Open a generated PDF with the default system viewer."""
-    if not path or not os.path.exists(path):
-        return
-    try:
-        os.startfile(path)
-    except AttributeError:
-        pdf_url = "file:///" + os.path.abspath(path).replace("\\", "/")
-        webbrowser.open(pdf_url)
+    """CLI only: open a generated PDF in the default viewer (any OS)."""
+    if path and os.path.exists(path):
+        webbrowser.open(Path(path).resolve().as_uri())
 
 
 # ─── CLI entrypoint ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    from log_setup import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Ask a question about an RFP, or generate a quote / proposal.",
         epilog=(

@@ -539,6 +539,9 @@ def _print_status(status: Dict[str, Any]) -> None:
 
 
 def main() -> int:
+    from log_setup import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description="Run the RFP review workflow from the terminal.")
     sub = parser.add_subparsers(dest="command", required=True)
     p_start = sub.add_parser("start", help="start a project for an RFP PDF")

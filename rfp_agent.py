@@ -16,6 +16,7 @@ Both outputs are produced in a single run to avoid redundant PDF retrieval.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,8 @@ from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY, RFP_EXTRACT_WINDOW
 from rfp_rag import RfpRagConfig, get_rfp_rag_tool
 from llm_json import LLMOutputError, chat_json
 from state import AgentState
+
+logger = logging.getLogger(__name__)
 
 _W = 72  # print banner width
 
@@ -44,24 +47,22 @@ def _wrap(text: str, indent: int = 2) -> List[str]:
     return lines
 
 
-def _print_banner(title: str) -> None:
-    print(f"\n╔{'═' * (_W - 2)}╗")
-    print(f"║  {title:<{_W - 4}}║")
-    print(f"╠{'═' * (_W - 2)}╣")
+# Box-drawing report helpers: append lines to *out*; the node logs it once.
+def _banner(out: List[str], title: str) -> None:
+    out += [f"╔{'═' * (_W - 2)}╗", f"║  {title:<{_W - 4}}║", f"╠{'═' * (_W - 2)}╣"]
 
 
-def _print_section(label: str) -> None:
-    print(f"║  {label:<{_W - 4}}║")
-    print(f"╠{'─' * (_W - 2)}╣")
+def _section(out: List[str], label: str) -> None:
+    out += [f"║  {label:<{_W - 4}}║", f"╠{'─' * (_W - 2)}╣"]
 
 
-def _print_line(text: str, indent: int = 2) -> None:
+def _line(out: List[str], text: str, indent: int = 2) -> None:
     pad = " " * indent
-    print(f"║{pad}{text:<{_W - indent - 2}}║")
+    out.append(f"║{pad}{text:<{_W - indent - 2}}║")
 
 
-def _print_footer() -> None:
-    print(f"╚{'═' * (_W - 2)}╝\n")
+def _footer(out: List[str]) -> None:
+    out.append(f"╚{'═' * (_W - 2)}╝")
 
 
 # ─── Requirement extraction ───────────────────────────────────────────────────
@@ -216,7 +217,7 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     pdf_path = state.get("rfp_pdf_path") or RfpRagConfig().pdf_path
     rfp_tool = get_rfp_rag_tool(RfpRagConfig(pdf_path=pdf_path))
 
-    print("[RfpAgent] Answering user query from RFP …")
+    logger.info("[RfpAgent] Answering user query from RFP …")
     # Short RFPs: answer from the whole document (the 3 nearest chunks missed
     # the buyer's name on the sample RFP). Long ones: the nearest chunks.
     chunks = getattr(rfp_tool, "chunks", [])
@@ -226,30 +227,32 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     )
     state["rfp_answer"] = rfp_answer
 
-    print("[RfpAgent] Extracting structured requirements …")
+    logger.info("[RfpAgent] Extracting structured requirements …")
     requirements, warnings = _extract_requirements(rfp_tool, api_key)
     state["rfp_requirements"] = requirements
     if warnings:
         state["warnings"] = list(state.get("warnings", [])) + warnings
 
-    # ── Rich print output ──────────────────────────────────────────────────────
+    # ── Report for the log ─────────────────────────────────────────────────────
     crit_icon = {"mandatory": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
 
-    _print_banner("RFP AGENT — OUTPUT")
-    _print_line(f"Query: {query[:_W - 10]}")
-    _print_section(f"ANSWER")
+    out: List[str] = [""]
+    _banner(out, "RFP AGENT — OUTPUT")
+    _line(out, f"Query: {query[:_W - 10]}")
+    _section(out, "ANSWER")
     for line in _wrap(rfp_answer):
-        _print_line(line)
-    print(f"╠{'═' * (_W - 2)}╣")
-    _print_section(f"EXTRACTED REQUIREMENTS  ({len(requirements)} total)")
+        _line(out, line)
+    out.append(f"╠{'═' * (_W - 2)}╣")
+    _section(out, f"EXTRACTED REQUIREMENTS  ({len(requirements)} total)")
     for i, req in enumerate(requirements, 1):
         crit = req.get("criticality", "medium")
         icon = crit_icon.get(crit, "•")
         wt   = req.get("weight", 1.0)
         text = req.get("requirement", "")
-        _print_line(f"{i:>2}. {icon} [{crit.upper():<9}] wt={wt}  {text[:_W - 30]}", indent=2)
+        _line(out, f"{i:>2}. {icon} [{crit.upper():<9}] wt={wt}  {text[:_W - 30]}", indent=2)
         if len(text) > _W - 30:
-            _print_line(f"    ↳ …{text[_W - 30:]}", indent=2)
-    _print_footer()
+            _line(out, f"    ↳ …{text[_W - 30:]}", indent=2)
+    _footer(out)
+    logger.info("\n".join(out))
 
     return state

@@ -291,12 +291,12 @@ def matching_agent_node(state: AgentState) -> AgentState:
         return state
 
     # ── Step 1: classify ──────────────────────────────────────────────────────
-    print(f"[MatchingAgent] Classifying {len(requirements)} requirements (1 LLM call) …")
+    logger.info(f"[MatchingAgent] Classifying {len(requirements)} requirements (1 LLM call) …")
     types = _classify_requirements_llm(requirements, api_key)
     product_reqs = [r for r, t in zip(requirements, types) if t == "product_sku"]
 
     # ── Step 2: atomise product requirements ──────────────────────────────────
-    print(f"[MatchingAgent] Splitting {len(product_reqs)} product requirements (1 LLM call) …")
+    logger.info(f"[MatchingAgent] Splitting {len(product_reqs)} product requirements (1 LLM call) …")
     split = atomise([r["requirement"] for r in product_reqs], api_key)
     product_items: Dict[str, List[Dict[str, Any]]] = {}
     for req, parts in zip(product_reqs, split):
@@ -317,8 +317,8 @@ def matching_agent_node(state: AgentState) -> AgentState:
 
     # ── Step 3: match every product item in parallel ─────────────────────────
     flat = [item for items in product_items.values() for item in items]
-    print(f"[MatchingAgent] Matching {len(flat)} product items "
-          f"({LLM_MAX_CONCURRENCY} in parallel) …")
+    logger.info(f"[MatchingAgent] Matching {len(flat)} product items "
+                f"({LLM_MAX_CONCURRENCY} in parallel) …")
     with ThreadPoolExecutor(max_workers=max(1, LLM_MAX_CONCURRENCY)) as pool:
         matched_flat = list(pool.map(lambda it: _product_item(it, api_key), flat))
     matched_by_id = {m["id"]: m for m in matched_flat}
@@ -338,10 +338,13 @@ def matching_agent_node(state: AgentState) -> AgentState:
     state["fulfillment_report"] = fulfillment_report(matched_items, summary)
     state["match_summary"]      = summary
 
-    print(f"\n╔{'═' * (_W - 2)}╗")
-    print(f"║  {'MATCHING AGENT — OUTPUT':<{_W - 4}}║")
-    print(f"╚{'═' * (_W - 2)}╝")
-    print(state["fulfillment_report"])
+    logger.info("\n".join([
+        "",
+        f"╔{'═' * (_W - 2)}╗",
+        f"║  {'MATCHING AGENT — OUTPUT':<{_W - 4}}║",
+        f"╚{'═' * (_W - 2)}╝",
+        state["fulfillment_report"],
+    ]))
     return state
 
 

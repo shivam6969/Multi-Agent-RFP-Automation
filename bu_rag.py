@@ -20,6 +20,7 @@ This file is intentionally free of agent logic — it is a pure data tool.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from dataclasses import astuple, dataclass
@@ -45,6 +46,8 @@ from embedding_cache import encode_cached
 from llm import chat_completion
 from models import get_embedder, get_reranker
 
+logger = logging.getLogger(__name__)
+
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -68,10 +71,10 @@ class BuRagTool:
     def __init__(self, config: BuRagConfig) -> None:
         self.config = config
 
-        print(f"[BuRagTool] Loading embed model: {config.embed_model_name}")
+        logger.info(f"[BuRagTool] Loading embed model: {config.embed_model_name}")
         self.embed_model = get_embedder(config.embed_model_name)
 
-        print(f"[BuRagTool] Loading rerank model: {config.rerank_model_name}")
+        logger.info(f"[BuRagTool] Loading rerank model: {config.rerank_model_name}")
         self.reranker = get_reranker(config.rerank_model_name)
 
         # Text chunk indexes
@@ -87,7 +90,7 @@ class BuRagTool:
         self.json_texts = [p.search_text() for p in self.products]
         self.json_embeddings = self._embed_docs(self.json_texts)
 
-        print(
+        logger.info(
             f"[BuRagTool] Ready — "
             f"{len(self.small_chunks)} small / "
             f"{len(self.large_chunks)} large / "
