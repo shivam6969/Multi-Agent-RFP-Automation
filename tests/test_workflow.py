@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pymupdf
+
 from matching_agent import apply_product, fulfillment_report, match_summary
 from tests.fake_catalogue_search import product
 from workflow import ProjectWorkflow
@@ -26,7 +28,7 @@ class FakeSteps:
     """Deterministic stand-ins for the LLM-backed steps; pricing stays real."""
 
     def __init__(self) -> None:
-        self.calls = {"extract": 0, "match": 0, "proposal": 0}
+        self.calls = {"extract": 0, "match": 0, "draft": 0}
         self.fail_extract_once = False
 
     def extract(self, state):
@@ -67,13 +69,22 @@ class FakeSteps:
                      fulfillment_report=fulfillment_report(items, summary))
         return state
 
-    def proposal(self, state):
-        self.calls["proposal"] += 1
-        state["report_pdf_path"] = "var/proposals/test/vendor_proposal.pdf"
+    def draft(self, state):
+        """Stands in for the LLM writer; the PDF render step stays real."""
+        self.calls["draft"] += 1
+        state["proposal_sections"] = [
+            {"key": "executive_summary", "title": "Executive Summary", "ai_generated": True, "edited": False,
+             "body": "We are pleased to submit this proposal."},
+            {"key": "pricing", "title": "Pricing Schedule", "ai_generated": False, "edited": False,
+             "body": "Prices are per unit in Indian Rupees."},
+        ]
+        state["proposal_meta"] = {"reference": "SYN-TEST", "generated": "2026-10-21", "valid_until": "2027-01-19",
+                                  "buyer": "ABC Infrastructure Pvt. Ltd.", "rfp_title": "Modular switches",
+                                  "profile": {"name": "Demo Electricals Pvt. Ltd."}}
         return state
 
     def nodes(self):
-        return {"extract": self.extract, "match": self.match, "proposal": self.proposal}
+        return {"extract": self.extract, "match": self.match, "draft": self.draft}
 
 
 class WorkflowTestCase(unittest.TestCase):
@@ -110,16 +121,53 @@ class HappyPathTests(WorkflowTestCase):
         self.assertEqual(len(status["state"]["line_items"]), 2)
 
         status = self.wf.resume("p1", {"margin_pct": 25})
+        self.assertEqual(status["stage"], "proposal_review")
+        self.assertEqual(len(status["state"]["proposal_sections"]), 2)
+
+        status = self.wf.resume("p1", {"sections": [
+            {"key": "executive_summary", "body": "Edited by the reviewer & approved."}]})
         self.assertEqual(status["stage"], "done")
         self.assertIsNone(status["error"])
         state = status["state"]
-        self.assertEqual(state["report_pdf_path"], "var/proposals/test/vendor_proposal.pdf")
         self.assertEqual(state["pricing_summary"]["margin_pct"], 25.0)
+        summary = next(s for s in state["proposal_sections"] if s["key"] == "executive_summary")
+        self.assertTrue(summary["edited"])
+
+        pdf = Path(state["report_pdf_path"])
+        self.assertTrue(pdf.is_file())
+        with pymupdf.open(pdf) as doc:
+            text = "".join(p.get_text() for p in doc)
+        self.assertIn("Edited by the reviewer & approved.", text)
+        self.assertIn("ABC Infrastructure Pvt. Ltd.", text)
+
         self.assertEqual([e["stage"] for e in state["review_log"]],
-                         ["requirements_review", "matching_review", "pricing_review"])
+                         ["requirements_review", "matching_review", "pricing_review", "proposal_review"])
         self.assertEqual(state["review_log"][0]["reviewer"], "khushi")
         # Earlier steps never re-ran on resume.
-        self.assertEqual(self.steps.calls, {"extract": 1, "match": 1, "proposal": 1})
+        self.assertEqual(self.steps.calls, {"extract": 1, "match": 1, "draft": 1})
+
+    def test_save_proposal_draft_keeps_the_pause(self) -> None:
+        self.to_pricing()
+        self.wf.resume("p1", {})
+        status = self.wf.save_proposal_draft("p1", [{"key": "pricing", "body": "Saved draft text."}])
+        self.assertEqual(status["stage"], "proposal_review")
+        pricing = next(s for s in status["state"]["proposal_sections"] if s["key"] == "pricing")
+        self.assertEqual(pricing["body"], "Saved draft text.")
+        # Approving afterwards renders the saved text without re-drafting.
+        done = self.wf.resume("p1", {})
+        self.assertEqual(done["stage"], "done")
+        with pymupdf.open(done["state"]["report_pdf_path"]) as doc:
+            self.assertIn("Saved draft text.", "".join(p.get_text() for p in doc))
+        self.assertEqual(self.steps.calls["draft"], 1)
+        with self.assertRaises(ValueError):
+            self.wf.save_proposal_draft("p1", [])   # no longer at the proposal review
+
+    def test_unknown_section_is_rejected(self) -> None:
+        self.to_pricing()
+        self.wf.resume("p1", {})
+        with self.assertRaises(ValueError):
+            self.wf.resume("p1", {"sections": [{"key": "nope", "body": "x"}]})
+        self.assertEqual(self.wf.status("p1")["stage"], "proposal_review")
 
     def test_survives_a_restart(self) -> None:
         self.wf.start("p1", "sample.pdf")
@@ -214,7 +262,7 @@ class PricingReviewTests(WorkflowTestCase):
         status = self.wf.resume("p1", {"margin_pct": 30, "advance_payment": True,
                                        "freight_inr": 500, "quantities": {"R2": 40}})
         state = status["state"]
-        self.assertEqual(status["stage"], "done")
+        self.assertEqual(status["stage"], "proposal_review")
         self.assertEqual(state["pricing_summary"]["margin_pct"], 30.0)
         self.assertTrue(state["pricing_summary"]["advance_payment"])
         self.assertEqual(state["pricing_summary"]["freight"], 500.0)
@@ -250,6 +298,7 @@ class ErrorHandlingTests(WorkflowTestCase):
         self.wf.resume("p1", {})
         self.wf.resume("p1", {"accept_all": True})
         self.wf.resume("p1", {})
+        self.assertEqual(self.wf.resume("p1", {})["stage"], "done")
         with self.assertRaises(ValueError):
             self.wf.resume("p1", {})                  # done: nothing to review
 

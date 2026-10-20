@@ -96,6 +96,44 @@ class ProjectOut(ProjectSummaryOut):
     pricing_summary: Dict[str, Any] = {}
     unpriced: List[Dict[str, Any]] = []
     review_log: List[Dict[str, Any]] = []
+    proposal_sections: List[Dict[str, Any]] = []
+    proposal_meta: Dict[str, Any] = {}
+    proposal_warnings: Dict[str, str] = {}     # section key → "mentions an amount"
+
+
+class SectionIn(BaseModel):
+    key: str
+    title: Optional[str] = None
+    body: str = Field(max_length=20_000)
+
+
+class ProposalEditIn(BaseModel):
+    sections: List[SectionIn] = []
+
+
+class RegenerateIn(ProposalEditIn):
+    instruction: str = Field(default="", max_length=500)
+
+
+class RegenerateOut(BaseModel):
+    key: str
+    body: str
+    warning: Optional[str] = None
+
+
+class CompanyProfileIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    tagline: str = Field(default="", max_length=200)
+    about: str = Field(default="", max_length=2000)
+    brands: str = Field(default="", max_length=200)
+    years_in_business: Optional[int] = Field(default=None, ge=0, le=200)
+    address: str = Field(default="", max_length=300)
+    gstin: str = Field(default="", max_length=20)
+    email: str = Field(default="", max_length=200)
+    phone: str = Field(default="", max_length=40)
+    website: str = Field(default="", max_length=200)
+    signatory_name: str = Field(default="", max_length=120)
+    signatory_title: str = Field(default="", max_length=120)
 
 
 class ReviewIn(BaseModel):

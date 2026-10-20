@@ -15,12 +15,13 @@ export function stepForStage(stage: Stage | undefined, runningFrom?: string | nu
       return 3;
     case "pricing_review":
       return 4;
+    case "proposal_review":
     case "done":
       return 5;
     case "running":
     case "queued":
       return runningFrom?.startsWith("Matching") ? 3 : runningFrom?.startsWith("Calculating") ? 4
-        : runningFrom?.startsWith("Writing") ? 5 : 2;
+        : runningFrom?.startsWith("Drafting") || runningFrom?.startsWith("Rendering") ? 5 : 2;
     default:
       return 2;
   }

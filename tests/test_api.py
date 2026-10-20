@@ -49,7 +49,6 @@ class ApiTestCase(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         self.steps = FakeSteps()
-        self.steps.proposal = self.fake_proposal
         self.workflow = ProjectWorkflow(str(self.tmp / "checkpoints.db"), nodes=self.steps.nodes())
         self.addCleanup(self.workflow.close)
         self.db_path = str(self.tmp / "app.db")
@@ -59,12 +58,6 @@ class ApiTestCase(unittest.TestCase):
         self.client.__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
         self.addCleanup(get_engine(self.db_path).dispose)
-
-    def fake_proposal(self, state):
-        path = self.tmp / "proposal.pdf"
-        path.write_bytes(make_pdf("Vendor proposal"))
-        state["report_pdf_path"] = str(path)
-        return state
 
     def login(self, email="khushi@example.com") -> None:
         self.client.post("/api/auth/register",
@@ -189,6 +182,20 @@ class DiscoveryApiTests(ApiTestCase):
                          ("ABC Infrastructure Pvt. Ltd.", "2026-12-15", "Gurugram"))
 
 
+class SettingsApiTests(ApiTestCase):
+    def test_company_profile_round_trip(self) -> None:
+        self.assertEqual(self.client.get("/api/settings/company").status_code, 401)
+        self.login()
+        default = self.client.get("/api/settings/company").json()
+        self.assertTrue(default["is_demo"])
+        body = {**default, "name": "Sharma Electricals", "gstin": "06AAAAA0000A1Z5"}
+        body.pop("is_demo")
+        saved = self.client.put("/api/settings/company", json=body).json()
+        self.assertEqual((saved["name"], saved["is_demo"]), ("Sharma Electricals", False))
+        self.assertEqual(self.client.get("/api/settings/company").json()["name"], "Sharma Electricals")
+        self.assertEqual(self.client.put("/api/settings/company", json={**body, "name": ""}).status_code, 422)
+
+
 class TitleGuessTests(unittest.TestCase):
     def test_skips_generic_headings(self) -> None:
         from api.routes_rfps import _guess_title
@@ -283,14 +290,46 @@ class ProjectFlowTests(ApiTestCase):
         self.assertEqual(csv.status_code, 200)
         self.assertIn("requirement,qty", csv.text)
 
-        # Pricing → proposal
+        # Pricing → proposal review
         r = self.review(pid, {"margin_pct": 30, "quantities": {"R2": 50}})
         project = r.json()
+        self.assertEqual(project["stage"], "proposal_review")
+        self.assertEqual(project["pricing_summary"]["margin_pct"], 30.0)
+        self.assertEqual([s["key"] for s in project["proposal_sections"]], ["executive_summary", "pricing"])
+        self.assertNotIn("profile", project["proposal_meta"])
+
+        # Live preview of unsaved edits (a real PDF, nothing saved)
+        edited = [{"key": "executive_summary", "body": "Edited summary for ₹ 5,000 & more."}]
+        preview = self.client.post(f"/api/projects/{pid}/proposal/preview", json={"sections": edited})
+        self.assertEqual(preview.headers["content-type"], "application/pdf")
+        with pymupdf.open(stream=preview.content, filetype="pdf") as doc:
+            text = "".join(p.get_text() for p in doc)
+        self.assertIn("Edited summary", text)
+        self.assertIn("Proposal value", text)
+
+        # Regenerate one section with an instruction
+        with patch("llm_json.chat_completion",
+                   return_value=json.dumps({"text": "A shorter executive summary for the buyer."})) as llm:
+            regen = self.client.post(f"/api/projects/{pid}/proposal/sections/executive_summary/regenerate",
+                                     json={"instruction": "make it shorter", "sections": edited}).json()
+        self.assertEqual(regen["body"], "A shorter executive summary for the buyer.")
+        self.assertIn("make it shorter", llm.call_args.kwargs["user"])
+        self.assertEqual(self.client.post(f"/api/projects/{pid}/proposal/sections/pricing/regenerate",
+                                          json={}).status_code, 422)   # not an AI section
+
+        # Save a draft: stays at the review, warnings flag the ₹ amount
+        saved = self.client.put(f"/api/projects/{pid}/proposal/draft", json={"sections": edited}).json()
+        self.assertEqual(saved["stage"], "proposal_review")
+        self.assertIn("executive_summary", saved["proposal_warnings"])
+
+        # Approve → rendered PDF
+        project = self.review(pid, {}).json()
         self.assertEqual(project["stage"], "done")
         self.assertTrue(project["proposal_available"])
-        self.assertEqual(project["pricing_summary"]["margin_pct"], 30.0)
         pdf = self.client.get(f"/api/projects/{pid}/proposal.pdf")
         self.assertEqual(pdf.headers["content-type"], "application/pdf")
+        with pymupdf.open(stream=pdf.content, filetype="pdf") as doc:
+            self.assertIn("Edited summary", "".join(p.get_text() for p in doc))
 
         # History
         outcome = self.client.patch(f"/api/projects/{pid}/outcome", json={"outcome": "won"}).json()

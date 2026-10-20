@@ -12,6 +12,7 @@ export const STAGE_LABEL: Record<Stage, string> = {
   requirements_review: "Review requirements",
   matching_review: "Review matches",
   pricing_review: "Review pricing",
+  proposal_review: "Review proposal",
   failed: "Failed",
   done: "Proposal ready",
 };

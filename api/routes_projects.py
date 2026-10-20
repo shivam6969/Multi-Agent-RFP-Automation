@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import copy
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db import Project, Rfp, User
+from llm_json import LLMOutputError
 from pricing_agent import reprice_with_margin
 from quote_export import export_quote_csv
 from settings import PRICING_RULES
-from workflow import STAGE_MATCHING, STAGE_PRICING, STAGE_REQUIREMENTS
+from proposal_writer import amount_warnings, regenerate_section
+from report_agent import render_state_pdf
+from workflow import STAGE_MATCHING, STAGE_PRICING, STAGE_PROPOSAL, STAGE_REQUIREMENTS, apply_proposal_review, ProposalDecision
 
 from .context import AppContext, current_user, get_ctx, get_db
 from .schemas import (
@@ -25,6 +30,9 @@ from .schemas import (
     ProjectCreateIn,
     ProjectOut,
     ProjectSummaryOut,
+    ProposalEditIn,
+    RegenerateIn,
+    RegenerateOut,
     ReviewIn,
     RfpOut,
 )
@@ -54,8 +62,15 @@ PROGRESS_AFTER = {
     "start":            "Reading the RFP and extracting requirements",
     STAGE_REQUIREMENTS: "Matching requirements to catalogue products",
     STAGE_MATCHING:     "Calculating prices",
-    STAGE_PRICING:      "Writing the proposal",
+    STAGE_PRICING:      "Drafting the proposal",
+    STAGE_PROPOSAL:     "Rendering the proposal PDF",
 }
+
+
+def rfp_meta(rfp: Rfp) -> Dict[str, Any]:
+    """What the proposal needs to know about the RFP (from its record)."""
+    return {"title": rfp.title, "buyer": rfp.buyer, "reference": (rfp.meta or {}).get("reference"),
+            "deadline": rfp.deadline, "location": rfp.location}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -106,6 +121,9 @@ def _detail(ctx: AppContext, project: Project, rfp: Rfp) -> Dict[str, Any]:
         "pricing_summary": state.get("pricing_summary", {}),
         "unpriced":        [q for q in state.get("quoted_items", []) if q.get("catalog_cost_inr") is None],
         "review_log":      state.get("review_log", []),
+        "proposal_sections": state.get("proposal_sections", []),
+        "proposal_meta":   {k: v for k, v in (state.get("proposal_meta") or {}).items() if k != "profile"},
+        "proposal_warnings": amount_warnings(state.get("proposal_sections", [])),
     }
 
 
@@ -130,8 +148,8 @@ def create_project(
     db.add(project)
     db.commit()
 
-    pid, pdf = project.id, rfp.pdf_path
-    ctx.jobs.submit(pid, PROGRESS_AFTER["start"], lambda: ctx.workflow.start(pid, pdf))
+    pid, pdf, meta = project.id, rfp.pdf_path, rfp_meta(rfp)
+    ctx.jobs.submit(pid, PROGRESS_AFTER["start"], lambda: ctx.workflow.start(pid, pdf, rfp_meta=meta))
     db.refresh(project)
     return _detail(ctx, project, rfp)
 
@@ -197,8 +215,8 @@ def retry_project(
     rfp = db.get(Rfp, project.rfp_id)
     if project.stage == "failed" and not ctx.workflow.exists(project_id):
         # Failed before the first checkpoint was written: start again.
-        pid, pdf = project.id, rfp.pdf_path
-        ctx.jobs.submit(pid, PROGRESS_AFTER["start"], lambda: ctx.workflow.start(pid, pdf))
+        pid, pdf, meta = project.id, rfp.pdf_path, rfp_meta(rfp)
+        ctx.jobs.submit(pid, PROGRESS_AFTER["start"], lambda: ctx.workflow.start(pid, pdf, rfp_meta=meta))
     else:
         failed_step = _workflow_state(ctx, project_id).get("failed_step")
         if failed_step is None:
@@ -236,6 +254,82 @@ def preview_pricing(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
     return {"line_items": items, "pricing_summary": summary}
+
+
+# ─── Proposal editor ──────────────────────────────────────────────────────────
+
+def _proposal_state(ctx: AppContext, db: Session, project_id: str) -> Dict[str, Any]:
+    """Working state of a project paused at the proposal review."""
+    project = _get_project(db, project_id)
+    _require_idle(project)
+    wf = _workflow_state(ctx, project_id)
+    if project.stage != STAGE_PROPOSAL or not wf["state"].get("proposal_sections"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This project is not at the proposal review")
+    return wf["state"]
+
+
+def _with_edits(state: Dict[str, Any], sections: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not sections:
+        return state
+    try:
+        return apply_proposal_review(copy.deepcopy(state), ProposalDecision.model_validate({"sections": sections}))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+
+@router.post("/{project_id}/proposal/preview")
+def preview_proposal(
+    project_id: str,
+    body: ProposalEditIn,
+    ctx: AppContext = Depends(get_ctx),
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user),
+):
+    """Render the PDF with the editor's current (unsaved) text. Saves nothing."""
+    state = _with_edits(_proposal_state(ctx, db, project_id), [s.model_dump() for s in body.sections])
+    with tempfile.TemporaryDirectory() as tmp:
+        path = render_state_pdf(state, str(Path(tmp) / "preview.pdf"))
+        data = Path(path).read_bytes()
+    return Response(data, media_type="application/pdf", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{project_id}/proposal/sections/{key}/regenerate", response_model=RegenerateOut)
+def regenerate(
+    project_id: str,
+    key: str,
+    body: RegenerateIn,
+    ctx: AppContext = Depends(get_ctx),
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user),
+) -> Dict[str, Any]:
+    """AI rewrite of one section (not saved until the reviewer saves or approves)."""
+    state = _with_edits(_proposal_state(ctx, db, project_id), [s.model_dump() for s in body.sections])
+    try:
+        text = regenerate_section(state, key, body.instruction)
+    except LLMOutputError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"The AI did not return usable text: {exc}")
+    except ValueError as exc:   # not an AI section, or no API key
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    return {"key": key, "body": text,
+            "warning": amount_warnings([{"key": key, "body": text}]).get(key)}
+
+
+@router.put("/{project_id}/proposal/draft", response_model=ProjectOut)
+def save_draft(
+    project_id: str,
+    body: ProposalEditIn,
+    ctx: AppContext = Depends(get_ctx),
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user),
+) -> Dict[str, Any]:
+    """Save edited sections and stay at the proposal review."""
+    _proposal_state(ctx, db, project_id)
+    try:
+        ctx.workflow.save_proposal_draft(project_id, [s.model_dump() for s in body.sections])
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    project = _get_project(db, project_id)
+    return _detail(ctx, project, db.get(Rfp, project.rfp_id))
 
 
 @router.get("/{project_id}/quote.csv")

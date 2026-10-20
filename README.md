@@ -372,10 +372,20 @@ When the router classifies a query as `report`, the pipeline runs:
 
 `RFP Agent → BU Agent → Matching Agent → Pricing Agent → Report Agent → Synthesise`
 
-The report agent:
-- Calls Gemini to generate structured proposal text.
-- Builds a styled vendor proposal PDF with reportlab.
-- Stores the generated file path in state (`report_pdf_path`) and includes it in the final response.
+The report agent works in two halves:
+- **Drafting** (`proposal_writer.py`): the LLM writes each section (Gemini when
+  `GEMINI_API_KEY` is set, otherwise OpenRouter). It is told never to write prices
+  and to claim only the compliance items a reviewer confirmed; any section that
+  still mentions a ₹ amount is flagged.
+- **Rendering** (`proposal_pdf.py`): a deterministic PDF. The cover facts, pricing
+  table and totals are copied from the approved pricing; no amounts come from the LLM.
+
+"Prepared by" comes from the company profile (dashboard → **Settings**). The
+default is a fictitious demo company, so replace it with your details.
+
+In the dashboard, the proposal is a review step of its own: edit any section,
+regenerate one with an instruction ("make it shorter"), watch the PDF preview
+update, save a draft, then **Complete Generation**.
 
 ---
 

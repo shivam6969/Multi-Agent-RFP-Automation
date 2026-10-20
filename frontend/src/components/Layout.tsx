@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PlusCircle,
+  Settings as SettingsIcon,
   User as UserIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -122,6 +123,19 @@ export default function Layout() {
             );
           })}
         </nav>
+        <div className="border-t border-slate-100 px-3 py-2">
+          <Link
+            to="/settings"
+            title="Settings"
+            className={cx(
+              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
+              location.pathname === "/settings" ? "bg-brand-50 font-medium text-brand-700" : "text-slate-600 hover:bg-slate-50",
+            )}
+          >
+            <SettingsIcon className="h-4 w-4 shrink-0" />
+            {!collapsed && "Settings"}
+          </Link>
+        </div>
         {user && !collapsed && (
           <div className="m-3 flex items-center gap-2.5 rounded-lg bg-slate-50 p-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-white">

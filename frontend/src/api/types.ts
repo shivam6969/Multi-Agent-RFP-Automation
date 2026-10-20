@@ -46,8 +46,42 @@ export type Stage =
   | "requirements_review"
   | "matching_review"
   | "pricing_review"
+  | "proposal_review"
   | "failed"
   | "done";
+
+export interface ProposalSection {
+  key: string;
+  title: string;
+  body: string;
+  ai_generated: boolean;
+  edited: boolean;
+}
+
+export interface ProposalMeta {
+  reference?: string;
+  generated?: string;
+  valid_until?: string;
+  buyer?: string | null;
+  rfp_title?: string | null;
+  rfp_reference?: string | null;
+}
+
+export interface CompanyProfile {
+  name: string;
+  tagline: string;
+  about: string;
+  brands: string;
+  years_in_business: number | null;
+  address: string;
+  gstin: string;
+  email: string;
+  phone: string;
+  website: string;
+  signatory_name: string;
+  signatory_title: string;
+  is_demo: boolean;
+}
 
 export type Criticality = "mandatory" | "high" | "medium" | "low";
 
@@ -192,6 +226,9 @@ export interface Project extends ProjectSummary {
   pricing_summary: Partial<PricingSummary>;
   unpriced: { requirement: string; requirement_id?: string; note?: string }[];
   review_log: ReviewLogEntry[];
+  proposal_sections: ProposalSection[];
+  proposal_meta: ProposalMeta;
+  proposal_warnings: Record<string, string>;
 }
 
 export interface PricingRules {

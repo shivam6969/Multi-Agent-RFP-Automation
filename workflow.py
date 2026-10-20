@@ -4,7 +4,8 @@ workflow.py
 The per-RFP project workflow, with human review checkpoints.
 
     extract ─► ⏸ review_requirements ─► match ─► ⏸ review_matches
-            ─► price ─► ⏸ review_pricing ─► proposal ─► END
+            ─► price ─► ⏸ review_pricing ─► draft ─► ⏸ review_proposal
+            ─► render ─► END
 
 Each project is one LangGraph thread (thread_id = project_id). At each ⏸
 the graph calls interrupt() and stops; the state is saved by the SQLite
@@ -23,6 +24,8 @@ matching_review      MatchesDecision: accept / reject / change product /
                      accept_all for the remaining suggestions
 pricing_review       PricingDecision: margin, advance payment, freight,
                      quantities per item (re-priced deterministically)
+proposal_review      ProposalDecision: the edited section texts (or nothing,
+                     to keep the AI draft); then the PDF is rendered
 
 Note: when resumed, LangGraph re-runs the interrupted node from the top, so
 review nodes must not have side effects before interrupt().
@@ -51,7 +54,9 @@ from pydantic import BaseModel, Field, model_validator
 from catalogue import get_catalogue
 from matching_agent import apply_product, fulfillment_report, match_summary, matching_agent_node
 from pricing_agent import pricing_agent_node
-from report_agent import report_agent_node
+from company_profile import CompanyProfile, get_profile
+from proposal_writer import draft_proposal
+from report_agent import render_state_pdf, sections_as_text
 from rfp_agent import CRITICALITY_WEIGHTS, rfp_agent_node
 from settings import CHECKPOINT_DB_PATH, PROPOSALS_DIR
 from state import AgentState
@@ -61,6 +66,7 @@ logger = logging.getLogger(__name__)
 STAGE_REQUIREMENTS = "requirements_review"
 STAGE_MATCHING = "matching_review"
 STAGE_PRICING = "pricing_review"
+STAGE_PROPOSAL = "proposal_review"
 
 # Used as the RFP agent's question, so rfp_answer is a useful overview for
 # the proposal writer.
@@ -123,10 +129,21 @@ class PricingDecision(_Decision):
         return self
 
 
+class SectionEdit(BaseModel):
+    key: str
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    body: str = Field(max_length=20_000)
+
+
+class ProposalDecision(_Decision):
+    sections: Optional[List[SectionEdit]] = None   # None = keep the draft as written
+
+
 DECISION_SCHEMAS = {
     STAGE_REQUIREMENTS: RequirementsDecision,
     STAGE_MATCHING: MatchesDecision,
     STAGE_PRICING: PricingDecision,
+    STAGE_PROPOSAL: ProposalDecision,
 }
 
 
@@ -265,10 +282,29 @@ def apply_pricing_review(state: AgentState, decision: PricingDecision) -> AgentS
     return state
 
 
+def apply_proposal_review(state: AgentState, decision: ProposalDecision) -> AgentState:
+    sections = [dict(s) for s in state.get("proposal_sections", [])]
+    by_key = {s["key"]: s for s in sections}
+    edited = []
+    for edit in decision.sections or []:
+        section = by_key.get(edit.key)
+        if section is None:
+            raise ValueError(f"Unknown proposal section: {edit.key}")
+        if edit.body.strip() != section["body"].strip() or (edit.title and edit.title != section["title"]):
+            section["body"] = edit.body.strip()
+            section["title"] = edit.title or section["title"]
+            section["edited"] = True
+            edited.append(edit.key)
+    state["proposal_sections"] = sections
+    _log(state, STAGE_PROPOSAL, decision, {"edited_sections": edited})
+    return state
+
+
 APPLY = {
     STAGE_REQUIREMENTS: apply_requirements_review,
     STAGE_MATCHING: apply_matches_review,
     STAGE_PRICING: apply_pricing_review,
+    STAGE_PROPOSAL: apply_proposal_review,
 }
 
 
@@ -292,18 +328,42 @@ def _extract(state: AgentState) -> AgentState:
     return rfp_agent_node(state)
 
 
-def _proposal(state: AgentState) -> AgentState:
+def project_reference(project_id: str) -> str:
+    """Human reference for a project (same as the dashboard shows)."""
+    return f"SYN-{project_id[:6].upper()}"
+
+
+def _make_draft(profile_provider: Callable[[], CompanyProfile]) -> Callable[[AgentState], AgentState]:
+    def draft(state: AgentState) -> AgentState:
+        sections, meta = draft_proposal(state, profile_provider(),
+                                        project_ref=project_reference(state.get("project_id", "")))
+        state["proposal_sections"] = sections
+        state["proposal_meta"] = meta
+        return state
+    return draft
+
+
+def _render(state: AgentState) -> AgentState:
     out_dir = Path(PROPOSALS_DIR) / state.get("project_id", "default")
-    return report_agent_node(state, output_dir=str(out_dir))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"proposal_{project_reference(state.get('project_id', ''))}.pdf"
+    state["report_pdf_path"] = render_state_pdf(state, str(path))
+    state["report_text"] = sections_as_text(state.get("proposal_sections", []))
+    return state
 
 
-def build_workflow(checkpointer: Any, nodes: Optional[Dict[str, Callable]] = None):
+def build_workflow(
+    checkpointer: Any,
+    nodes: Optional[Dict[str, Callable]] = None,
+    profile_provider: Callable[[], CompanyProfile] = get_profile,
+):
     """
     Compile the review workflow. *nodes* can replace the agent steps
-    ("extract", "match", "price", "proposal"), e.g. with fakes in tests.
+    ("extract", "match", "price", "draft", "render"), e.g. with fakes in tests.
+    *profile_provider* returns the company profile used to draft proposals.
     """
-    steps = {"extract": _extract, "match": matching_agent_node,
-             "price": pricing_agent_node, "proposal": _proposal}
+    steps = {"extract": _extract, "match": matching_agent_node, "price": pricing_agent_node,
+             "draft": _make_draft(profile_provider), "render": _render}
     steps.update(nodes or {})
 
     graph = StateGraph(AgentState)
@@ -314,7 +374,9 @@ def build_workflow(checkpointer: Any, nodes: Optional[Dict[str, Callable]] = Non
         (STAGE_MATCHING, _review_node(STAGE_MATCHING)),
         ("price", steps["price"]),
         (STAGE_PRICING, _review_node(STAGE_PRICING)),
-        ("proposal", steps["proposal"]),
+        ("draft", steps["draft"]),
+        (STAGE_PROPOSAL, _review_node(STAGE_PROPOSAL)),
+        ("render", steps["render"]),
     ]
     for name, fn in order:
         graph.add_node(name, fn)
@@ -339,10 +401,11 @@ class ProjectWorkflow:
     """
 
     def __init__(self, checkpoint_path: str = CHECKPOINT_DB_PATH,
-                 nodes: Optional[Dict[str, Callable]] = None) -> None:
+                 nodes: Optional[Dict[str, Callable]] = None,
+                 profile_provider: Callable[[], CompanyProfile] = get_profile) -> None:
         Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(checkpoint_path, check_same_thread=False)
-        self.graph = build_workflow(SqliteSaver(self._conn), nodes)
+        self.graph = build_workflow(SqliteSaver(self._conn), nodes, profile_provider)
         self._lock = threading.Lock()
 
     def close(self) -> None:
@@ -355,14 +418,36 @@ class ProjectWorkflow:
     def exists(self, project_id: str) -> bool:
         return bool(self.graph.get_state(self._config(project_id)).values)
 
-    def start(self, project_id: str, rfp_pdf_path: str, user_query: Optional[str] = None) -> Dict[str, Any]:
+    def start(self, project_id: str, rfp_pdf_path: str, user_query: Optional[str] = None,
+              rfp_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Run extraction for a new project and stop at the first review."""
         if self.exists(project_id):
             raise ValueError(f"Project {project_id} already exists")
-        initial: AgentState = {"project_id": project_id, "rfp_pdf_path": rfp_pdf_path}
+        initial: AgentState = {"project_id": project_id, "rfp_pdf_path": rfp_pdf_path,
+                               "rfp_meta": dict(rfp_meta or {})}
         if user_query:
             initial["user_query"] = user_query
         return self._run(project_id, initial)
+
+    def save_proposal_draft(self, project_id: str, sections: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Save edited proposal sections while staying paused at proposal_review.
+
+        A plain update_state() would drop the pending interrupt, so the update
+        is recorded as if the "draft" step produced it, and the graph is run
+        forward to pause at the review again (the review node has no side
+        effects before interrupt()). Verified against LangGraph 1.2.
+        """
+        current = self.status(project_id)
+        if current["stage"] != STAGE_PROPOSAL:
+            raise ValueError(f"Project {project_id} is not at the proposal review (stage: {current['stage']})")
+        edits = ProposalDecision.model_validate({"sections": sections})
+        updated = apply_proposal_review(copy.deepcopy(current["state"]), edits)
+        with self._lock:
+            config = self._config(project_id)
+            self.graph.update_state(config, {"proposal_sections": updated["proposal_sections"]}, as_node="draft")
+            self.graph.invoke(None, config)
+        return self.status(project_id)
 
     def validate_decision(self, project_id: str, decision: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -445,6 +530,9 @@ def _print_status(status: Dict[str, Any]) -> None:
         print(s.get("fulfillment_report", ""))
     elif status["stage"] == STAGE_PRICING:
         print(s.get("pricing_report", ""))
+    elif status["stage"] == STAGE_PROPOSAL:
+        for section in s.get("proposal_sections", []):
+            print(f"\n== {section['title']} ==\n{section['body']}")
     elif status["stage"] == "done":
         print(f"  proposal: {s.get('report_pdf_path', 'not generated')}")
         print(f"  grand total: {(s.get('pricing_summary') or {}).get('grand_total')}")

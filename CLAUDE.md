@@ -27,7 +27,11 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `bu_agent.py` / `bu_rag.py` three-index catalogue retrieval (small chunks, large chunks, JSON) + cross-encoder
 - `matching_agent.py` one batched LLM call to tag SKU vs compliance, then one RAG+LLM call per requirement; weighted score
 - `pricing_agent.py` filter/atomise requirements, pull price/qty, apply margin, volume tier, GST; `reprice_with_margin()` reprices without re-retrieval
-- `report_agent.py` Gemini drafts text, reportlab renders PDF
+- `report_agent.py` thin node: `proposal_writer.draft_proposal()` then `proposal_pdf.render_proposal()` (used by master_agent's "report" route; the workflow calls the halves separately)
+- `proposal_writer.py` LLM drafts sections (`SECTIONS`: company + pricing intro are deterministic, the rest AI) via `chat_json(provider="gemini")` when GEMINI_API_KEY is set, else OpenRouter; told never to write amounts and to claim only reviewer-confirmed compliance; `regenerate_section()`; `amount_warnings()` flags ₹/Rs/INR/lakh/crore in text
+- `proposal_pdf.py` deterministic reportlab render: header, facts table, sections, pricing table + totals copied from `pricing_summary` (no arithmetic), not-quoted list, signature. Escapes text (XML). Helvetica lacks ₹ → "Rs." + Indian grouping (`inr()`).
+- `company_profile.py` vendor details ("Prepared by"), stored in `app_settings`; Settings page; projects snapshot it in `proposal_meta.profile` at draft time
+- Workflow tail: price → ⏸ pricing_review → draft → ⏸ proposal_review → render. `ProjectWorkflow.save_proposal_draft()` saves edits while paused: `update_state(as_node="draft")` + `invoke(None)` to re-pause (a plain `update_state` drops the pending interrupt). Never resume with an empty dict (LangGraph treats it as no resume); decisions are always `model_dump()`ed.
 - `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
 - `db.py` SQLAlchemy models + engine (SQLite at `var/synapse.db`, override `SYNAPSE_DB_PATH`); `catalogue.py` loads the catalogue JSON into it (auto-reload on file change), parses prices, generates seeded demo stock, lookups by id/SAP. SAP codes are NOT unique (3 duplicates); use `product_id`.
 - `models.py` shared, thread-safe embedder/reranker instances (load once); `embedding_cache.py` disk cache for document embeddings (override dir with `SYNAPSE_CACHE_DIR`)

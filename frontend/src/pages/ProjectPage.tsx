@@ -7,6 +7,7 @@ import Stepper, { stepForStage } from "../components/Stepper";
 import { Button, ErrorBox, Spinner } from "../components/ui";
 import MatchingReview from "./project/MatchingReview";
 import PricingReview from "./project/PricingReview";
+import ProposalEditor from "./project/ProposalEditor";
 import RequirementsReview from "./project/RequirementsReview";
 import Success from "./project/Success";
 
@@ -54,6 +55,7 @@ export default function ProjectPage() {
   else if (project.stage === "requirements_review") body = <RequirementsReview key={`${project.id}-req`} project={project} />;
   else if (project.stage === "matching_review") body = <MatchingReview key={`${project.id}-match`} project={project} />;
   else if (project.stage === "pricing_review") body = <PricingReview key={`${project.id}-price`} project={project} />;
+  else if (project.stage === "proposal_review") body = <ProposalEditor key={`${project.id}-proposal`} project={project} />;
   else body = <Success project={project} />;
 
   return (
