@@ -307,10 +307,19 @@ cd ..
 python -m api        # then open http://127.0.0.1:8000
 ```
 
-Create an account on the login page ("Create an account"), upload an RFP PDF
-(or use `data/samples/sample_rfp.pdf`), and follow the steps: Requirements →
+Create an account on the login page ("Create an account"), then on **New Session**
+either **Find RFPs** (keywords, location, dates, budget) or **Upload a PDF** (e.g.
+`data/samples/sample_rfp.pdf`). Pick one RFP and follow the steps: Requirements →
 Product Matching → Pricing → Proposal. While the AI is working the page shows
 progress; you can leave and come back.
+
+**Where RFPs come from (Discovery Agent, `discovery/`):**
+
+| Source | Default | What it does |
+|--------|---------|--------------|
+| Sample tenders | on | Generates realistic sample RFPs from the catalogue for your search, with fictitious buyers. Every page is stamped as a sample. Same search → same RFPs. Unknown keywords (e.g. "cable") become items the catalogue can't supply, so matching shows gaps. |
+| Upload | on | Your own PDF. The AI reads the buyer, deadline, location, category and budget (GeM documents are read by rules, no AI). |
+| GeM portal (live) | **off** | Port of the team's Selenium scraper. Scraping the portal may not be permitted, so it only runs with `DISCOVERY_GEM_ENABLED=true` in `.env` plus `pip install selenium` and Chrome. Not tested against the live site. |
 
 **Working on the UI:** run `python -m api` in one terminal and `npm run dev` in
 `frontend/` in another, then open http://localhost:5173 (changes reload instantly;

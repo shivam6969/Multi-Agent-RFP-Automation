@@ -164,7 +164,9 @@ function SuggestionCard({
           Same product as {item.duplicate_of}: check this isn't quoted twice.
         </div>
       )}
-      {item.rationale && !item.duplicate_of && <p className="mt-2 text-xs text-slate-600">{item.rationale}</p>}
+      {item.rationale && !item.duplicate_of && !(isGap && /no similar product/i.test(item.rationale)) && (
+        <p className="mt-2 text-xs text-slate-600">{item.rationale}</p>
+      )}
       <div className="mt-1"><StockLine item={item} /></div>
 
       <div className="mt-3 flex flex-wrap gap-2">

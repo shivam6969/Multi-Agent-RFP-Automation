@@ -9,6 +9,12 @@ import Stepper from "../components/Stepper";
 import { Badge, Button, cx, EmptyState, PageHeader, Spinner } from "../components/ui";
 import { formatDate, formatINRShort } from "../lib/format";
 
+function closingSoon(deadline: string | null): boolean {
+  if (!deadline) return false;
+  const days = (new Date(`${deadline}T23:59:59`).getTime() - Date.now()) / 864e5;
+  return days >= 0 && days <= 7;
+}
+
 function RfpCard({
   rfp,
   project,
@@ -28,14 +34,20 @@ function RfpCard({
         selected ? "border-brand-400 bg-brand-50/40 ring-2 ring-brand-100" : "hover:border-brand-200",
       )}
     >
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <input type="radio" readOnly checked={selected} className="h-4 w-4 accent-brand-500" />
-        {project ? <StatusBadge project={project} /> : <Badge tone="blue">New</Badge>}
+        <div className="flex gap-1.5">
+          {rfp.meta?.synthetic && <Badge tone="slate" className="opacity-80">Sample</Badge>}
+          {project ? <StatusBadge project={project} /> : closingSoon(rfp.deadline) ? <Badge tone="amber">Closing soon</Badge> : <Badge tone="blue">New</Badge>}
+        </div>
       </div>
       <h3 className="line-clamp-2 font-semibold text-slate-800">{rfp.title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{rfp.buyer ?? rfp.filename}</p>
+      <p className="mt-1 truncate text-sm text-slate-500">{rfp.buyer ?? rfp.filename}</p>
       <ul className="mt-3 space-y-1.5 text-xs text-slate-500">
-        <li className="flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> Added {formatDate(rfp.created_at)}</li>
+        <li className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5" />
+          {rfp.meta?.published ? <>Published {formatDate(rfp.meta.published)}</> : <>Added {formatDate(rfp.created_at)}</>}
+        </li>
         {rfp.deadline && <li className="flex items-center gap-2"><Calendar className="h-3.5 w-3.5" /> Deadline <b className="text-slate-700">{formatDate(rfp.deadline)}</b></li>}
         {rfp.location && <li className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5" /> {rfp.location}</li>}
         <li className="flex items-center gap-2">
@@ -60,10 +72,13 @@ function RfpCard({
 }
 
 export default function RfpSelection() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<string | null>(params.get("selected"));
-  const { data: rfps, isLoading } = useRfps(q);
+  const { data: allRfps, isLoading } = useRfps(q);
+  // After "Find RFPs", show just what that search found (until "Show all").
+  const onlyIds = params.get("ids")?.split(",").filter(Boolean);
+  const rfps = onlyIds ? allRfps?.filter((r) => onlyIds.includes(r.id)) : allRfps;
   const { data: projects } = useProjects();
   const start = useStartProject();
   const navigate = useNavigate();
@@ -86,9 +101,17 @@ export default function RfpSelection() {
         actions={<Button variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={() => navigate("/new")}>Upload RFP</Button>}
       />
 
-      <div className="relative mb-5 max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input className="input pl-9" placeholder="Search RFPs, organizations, locations" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input className="input pl-9" placeholder="Search RFPs, organizations, locations" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {onlyIds && (
+          <span className="flex items-center gap-2 text-sm text-slate-500">
+            Showing the {onlyIds.length} RFPs from your search.
+            <button className="font-medium text-brand-600 hover:underline" onClick={() => setParams({})}>Show all</button>
+          </span>
+        )}
       </div>
 
       {isLoading ? (

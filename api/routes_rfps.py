@@ -6,7 +6,7 @@ import hashlib
 import re
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymupdf
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db import Rfp, User
+from discovery.metadata import extract_metadata
 
 from .context import AppContext, current_user, get_ctx, get_db
 from .schemas import RfpOut
@@ -44,30 +45,13 @@ def _guess_title(text: str, fallback: str) -> str:
     return fallback
 
 
-@router.post("/upload", response_model=RfpOut, status_code=status.HTTP_201_CREATED)
-async def upload_rfp(
-    response: Response,
-    file: UploadFile = File(...),
-    ctx: AppContext = Depends(get_ctx),
-    db: Session = Depends(get_db),
-    user: User = Depends(current_user),
-) -> Rfp:
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF is larger than 25 MB")
+def read_pdf(data: bytes) -> Tuple[int, str]:
+    """(pages, text) of a PDF, or HTTP 422 with a clear reason."""
     if not data.startswith(b"%PDF"):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The file is not a PDF")
-
-    sha = hashlib.sha256(data).hexdigest()
-    existing = db.scalar(select(Rfp).where(Rfp.sha256 == sha))
-    if existing:
-        response.status_code = status.HTTP_200_OK   # same document uploaded before
-        return existing
-
     try:
         with pymupdf.open(stream=data, filetype="pdf") as doc:
-            pages = doc.page_count
-            text = "".join(page.get_text() for page in doc)
+            pages, text = doc.page_count, "".join(page.get_text() for page in doc)
     except Exception:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The PDF could not be opened")
     if len(text.strip()) < 50:
@@ -75,25 +59,78 @@ async def upload_rfp(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "No readable text in this PDF. If it is a scanned document it needs OCR first.",
         )
+    return pages, text
 
-    ctx.uploads_dir.mkdir(parents=True, exist_ok=True)
-    path = ctx.uploads_dir / f"{sha}.pdf"
-    path.write_bytes(data)
 
-    filename = Path(file.filename or "rfp.pdf").name
+def register_rfp(
+    db: Session,
+    *,
+    data: bytes,
+    pdf_path: Path,
+    filename: str,
+    source: str,
+    user_id: Optional[int],
+    known: Optional[Dict[str, Any]] = None,
+) -> Tuple[Rfp, bool]:
+    """
+    Save an RFP row for this PDF (deduplicated by content). Metadata comes
+    from *known* (discovery already knows it) or is extracted from the text.
+    Returns (rfp, created).
+    """
+    sha = hashlib.sha256(data).hexdigest()
+    existing = db.scalar(select(Rfp).where(Rfp.sha256 == sha))
+    if existing:
+        return existing, False
+
+    pages, text = read_pdf(data)
+    if not pdf_path.is_file():
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(data)
+
+    meta = dict(known) if known is not None else extract_metadata(text)
+    value = meta.get("estimated_value")
     rfp = Rfp(
         id=uuid.uuid4().hex[:12],
-        title=_guess_title(text, Path(filename).stem),
-        source="upload",
+        title=meta.get("title") or _guess_title(text, Path(filename).stem),
+        source=source,
         filename=filename,
-        pdf_path=str(path),
+        pdf_path=str(pdf_path),
         sha256=sha,
         pages=pages,
-        meta={},
-        created_by=user.id,
+        buyer=meta.get("buyer"),
+        deadline=meta.get("deadline"),
+        location=meta.get("location"),
+        category=meta.get("category"),
+        estimated_value=float(value) if value is not None else None,
+        meta={k: v for k, v in meta.items()
+              if k not in {"title", "buyer", "deadline", "location", "category", "estimated_value"}},
+        created_by=user_id,
     )
     db.add(rfp)
     db.commit()
+    return rfp, True
+
+
+@router.post("/upload", response_model=RfpOut, status_code=status.HTTP_201_CREATED)
+def upload_rfp(
+    response: Response,
+    file: UploadFile = File(...),
+    ctx: AppContext = Depends(get_ctx),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> Rfp:
+    # A plain (non-async) endpoint: FastAPI runs it on a worker thread, so the
+    # metadata LLM call below does not block other requests.
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PDF is larger than 25 MB")
+    sha = hashlib.sha256(data).hexdigest()
+    rfp, created = register_rfp(
+        db, data=data, pdf_path=ctx.uploads_dir / f"{sha}.pdf",
+        filename=Path(file.filename or "rfp.pdf").name, source="upload", user_id=user.id,
+    )
+    if not created:
+        response.status_code = status.HTTP_200_OK   # same document uploaded before
     return rfp
 
 

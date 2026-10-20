@@ -61,8 +61,13 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 10. `_open_pdf` in master_agent.py uses `os.startfile` (Windows only); remove from library code.
 11. Agents print banner output; move to logging so an API/UI can capture progress.
 
-## Discovery agent (scraper) notes
-The original code is in `legacy/gem_scraper/` (reference only). The new Discovery Agent will be a fresh `discovery/` package with swappable sources: generated sample RFPs + PDF upload (default), GeM scraper adapter off by default (the team believes GeM does not allow scraping).
+## Discovery agent
+`discovery/` package (done in step 5). Sources behind one interface (`base.DiscoverySource`, `DiscoveryQuery`, `RfpCandidate`):
+- `samples.SampleSource` (default): generates sample RFP PDFs from the catalogue for the search (keywords → product themes; unknown keywords like "cable" become off-catalogue gap lines). Fictional buyers, stamped "SAMPLE RFP … fictitious" on every page, explicit quantities, deadlines ≥5 days ahead, synthetic budget. Deterministic (same search → byte-identical PDFs, `invariant=True`), so repeated searches dedupe by sha256.
+- Upload: `metadata.extract_metadata()` = rule parser for GeM docs, else one `chat_json` call (title, buyer, deadline, location, category, budget); never raises.
+- `gem.GemSource`: ported Selenium scraper, refuses unless `DISCOVERY_GEM_ENABLED`; selenium is not a dependency; live path never run. `parse_gem_text()` tested on the 32 archived tenders.
+- `discovery_agent.discovery_node` (LangGraph node; state `discovery_source`, `discovery_query`, `discovered_rfps`), `run_discovery()`, `list_sources()`. API: `GET /api/discovery/sources`, `POST /api/discovery/search` → registers RFPs via `routes_rfps.register_rfp()`.
+Legacy notes (original code in `legacy/gem_scraper/`, reference only):
 - `z.py`: minimal Selenium script, `ELECTRICAL_KEYWORDS` is empty and the download path is hardcoded to a personal Windows path.
 - `scraper/rfp_agent.py` (904 lines): Streamlit app with keyword list, headless Chrome scraping of `https://bidplus.gem.gov.in/all-bids`, pdfplumber text extraction, regex analysis, stock comparison, session JSON, Move Forward / Hold cards. **Its filename clashes with the repo's `rfp_agent.py`**; rename on import.
 - `scraper/rfp_extractor.py`, `app.py` (Flask), `streamlit_app.py`: earlier variants; consolidate.

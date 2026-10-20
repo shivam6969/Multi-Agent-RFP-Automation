@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, uploadPdf } from "./client";
 import type {
   CatalogueProduct,
+  DiscoverySearch,
+  DiscoverySource,
   Health,
   LineItem,
   PricingRules,
@@ -76,6 +78,24 @@ export function useUploadRfp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (file: File) => uploadPdf<Rfp>("/api/rfps/upload", file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rfps"] }),
+  });
+}
+
+// ─── Discovery ────────────────────────────────────────────────────────────────
+
+export function useDiscoverySources() {
+  return useQuery<DiscoverySource[]>({
+    queryKey: ["discovery-sources"],
+    queryFn: () => api<DiscoverySource[]>("/api/discovery/sources"),
+    staleTime: Infinity,
+  });
+}
+
+export function useDiscoverySearch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: DiscoverySearch) => api<Rfp[]>("/api/discovery/search", { method: "POST", json: body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["rfps"] }),
   });
 }

@@ -31,6 +31,7 @@ class AppContext:
     workflow: ProjectWorkflow
     uploads_dir: Path
     exports_dir: Path
+    discovery_dir: Path
     jobs: "JobRunner" = field(init=False)
     run_inline: bool = False
 

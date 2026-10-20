@@ -26,7 +26,7 @@ from db import Project, get_engine
 from settings import DB_PATH, GEMINI_API_KEY, OPENROUTER_API_KEY, VAR_DIR
 from workflow import ProjectWorkflow
 
-from . import routes_auth, routes_catalogue, routes_projects, routes_rfps
+from . import routes_auth, routes_catalogue, routes_discovery, routes_projects, routes_rfps
 from .context import AppContext, sync_project
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,7 @@ def create_app(
         workflow=workflow or ProjectWorkflow(),
         uploads_dir=var / "uploads",
         exports_dir=var / "exports",
+        discovery_dir=var / "discovery",
         run_inline=run_inline,
     )
 
@@ -87,7 +88,7 @@ def create_app(
             "gemini_key_configured": bool(os.environ.get("GEMINI_API_KEY") or GEMINI_API_KEY),
         }
 
-    for module in (routes_auth, routes_rfps, routes_projects, routes_catalogue):
+    for module in (routes_auth, routes_rfps, routes_projects, routes_catalogue, routes_discovery):
         app.include_router(module.router)
     app.include_router(routes_projects.rules_router)
 

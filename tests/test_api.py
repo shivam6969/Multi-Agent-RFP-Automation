@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pymupdf
 from fastapi.testclient import TestClient
@@ -142,6 +144,49 @@ class RfpTests(ApiTestCase):
         scan = self.upload(text="")
         self.assertEqual(scan.status_code, 422)
         self.assertIn("OCR", scan.json()["detail"])
+
+
+class DiscoveryApiTests(ApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.login()
+
+    def test_sources(self) -> None:
+        sources = {s["name"]: s for s in self.client.get("/api/discovery/sources").json()}
+        self.assertTrue(sources["sample"]["enabled"])
+        self.assertFalse(sources["gem"]["enabled"])
+        self.assertIn("Switched off", sources["gem"]["reason"])
+
+    def test_find_rfps_registers_them_once(self) -> None:
+        body = {"keywords": ["switches", "sockets"], "count": 3, "location": "Pune",
+                "date_from": "2026-11-01", "date_to": "2026-11-30"}
+        found = self.client.post("/api/discovery/search", json=body)
+        self.assertEqual(found.status_code, 200)
+        rfps = found.json()
+        self.assertEqual(len(rfps), 3)
+        for r in rfps:
+            self.assertEqual((r["source"], r["location"]), ("sample", "Pune"))
+            self.assertTrue(r["buyer"] and r["deadline"] and r["estimated_value"])
+            self.assertTrue(r["meta"]["synthetic"])
+            self.assertTrue(r["meta"]["reference"].startswith("SMP/"))
+        again = self.client.post("/api/discovery/search", json=body).json()
+        self.assertEqual([r["id"] for r in again], [r["id"] for r in rfps])
+        self.assertEqual(len(self.client.get("/api/rfps").json()), 3)
+        # A discovered RFP can start a project like any other.
+        self.assertEqual(self.client.post("/api/projects", json={"rfp_id": rfps[0]["id"]}).status_code, 202)
+
+    def test_gem_refused_and_bad_input(self) -> None:
+        self.assertEqual(self.client.post("/api/discovery/search", json={"source": "gem"}).status_code, 409)
+        self.assertEqual(self.client.post("/api/discovery/search", json={"count": 0}).status_code, 422)
+
+    def test_upload_reads_metadata(self) -> None:
+        reply = json.dumps({"title": "Supply of Modular Switches", "buyer": "ABC Infrastructure Pvt. Ltd.",
+                            "deadline": "2026-12-15", "location": "Gurugram", "category": "Modular switches",
+                            "estimated_value": None})
+        with patch("llm_json.chat_completion", return_value=reply):
+            rfp = self.upload().json()
+        self.assertEqual((rfp["buyer"], rfp["deadline"], rfp["location"]),
+                         ("ABC Infrastructure Pvt. Ltd.", "2026-12-15", "Gurugram"))
 
 
 class TitleGuessTests(unittest.TestCase):

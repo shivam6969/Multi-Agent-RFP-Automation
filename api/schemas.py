@@ -43,7 +43,20 @@ class RfpOut(BaseModel):
     location: Optional[str] = None
     category: Optional[str] = None
     estimated_value: Optional[float] = None
+    meta: Dict[str, Any] = {}      # e.g. reference, published, synthetic, total_quantity
     created_at: datetime
+
+
+class DiscoverySearchIn(BaseModel):
+    source: str = "sample"
+    keywords: List[str] = []
+    count: int = Field(default=6, ge=1, le=20)
+    location: Optional[str] = None
+    date_from: Optional[str] = None     # YYYY-MM-DD
+    date_to: Optional[str] = None
+    category: Optional[str] = None
+    min_value: Optional[float] = Field(default=None, ge=0)
+    max_value: Optional[float] = Field(default=None, ge=0)
 
 
 # ─── Projects ─────────────────────────────────────────────────────────────────

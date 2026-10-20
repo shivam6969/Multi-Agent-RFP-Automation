@@ -17,7 +17,27 @@ export interface Rfp {
   location: string | null;
   category: string | null;
   estimated_value: number | null;
+  meta: { reference?: string; published?: string; synthetic?: boolean; total_quantity?: number; [k: string]: unknown };
   created_at: string;
+}
+
+export interface DiscoverySource {
+  name: string;
+  label: string;
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface DiscoverySearch {
+  source: string;
+  keywords: string[];
+  count: number;
+  location?: string;
+  date_from?: string;
+  date_to?: string;
+  category?: string;
+  min_value?: number;
+  max_value?: number;
 }
 
 export type Stage =
