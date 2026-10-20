@@ -114,6 +114,16 @@ CHECKPOINT_DB_PATH: str = os.environ.get(
 # Generated proposal PDFs, one folder per project.
 PROPOSALS_DIR: str = os.environ.get("SYNAPSE_PROPOSALS_DIR", str(VAR_DIR / "proposals"))
 
+# ─── Discovery ────────────────────────────────────────────────────────────────
+
+# Generated sample RFPs and downloaded tender PDFs.
+DISCOVERY_DIR: str = os.environ.get("SYNAPSE_DISCOVERY_DIR", str(VAR_DIR / "discovery"))
+
+# The live GeM (bidplus.gem.gov.in) scraper is OFF unless explicitly enabled:
+# the team believes the portal does not allow automated scraping. Enabling it
+# also needs `pip install selenium` and Chrome.
+DISCOVERY_GEM_ENABLED: bool = os.environ.get("DISCOVERY_GEM_ENABLED", "").lower() in ("1", "true", "yes")
+
 # Stock figures are synthetic (no real company data). The seed makes every
 # laptop generate the same numbers; the UI must label them as demo data.
 DEMO_STOCK_SEED: int = 2026

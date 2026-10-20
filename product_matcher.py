@@ -130,8 +130,9 @@ Rules:
   one item per colour, keeping the product name ("White combined plate", …)
 - A list of module SIZES given as a range (e.g. "outer plates 1M to 18M") →
   one item per standard size (1M, 2M, 3M, 4M, 6M, 8M, 12M, 18M)
-- A rating range that is part of ONE product's name stays one item:
-  "Combined sockets (6-16A)" is a single 6-16A combined socket, not 6A/10A/16A
+- A rating range or slash rating that is part of ONE product's name stays one
+  item: "Combined sockets (6-16A)" is a single 6-16A combined socket, and
+  "6A/10A Bell push Switch" is a single 6A/10A switch, not two
 - Already-atomic requirements → one item, unchanged
 - Never merge, summarise or invent requirements
 

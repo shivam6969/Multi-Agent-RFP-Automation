@@ -19,6 +19,11 @@ class AgentState(TypedDict, total=False):
     rfp_pdf_path: str                      # RFP to analyse; default settings.RFP_PDF_PATH
     project_id: str                        # review workflow: one LangGraph thread per project
 
+    # ── Discovery Agent (discovery/discovery_agent.py) ────────────────────────
+    discovery_source: str                  # "sample" (default) | "gem" (off unless enabled)
+    discovery_query: Dict[str, Any]        # DiscoveryQuery: keywords, count, location, dates, budget
+    discovered_rfps: List[Dict[str, Any]]  # RfpCandidate dicts (PDF saved locally)
+
     # ── Human review (workflow.py) ────────────────────────────────────────────
     review_log: List[Dict[str, Any]]       # [{stage, at, reviewer, note, changes}]
 
