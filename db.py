@@ -71,6 +71,14 @@ class Meta(Base):
     value: Mapped[str] = mapped_column(String(256))
 
 
+class AppSetting(Base):
+    """Small JSON settings edited in the UI (e.g. the company profile)."""
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Dict[str, Any]] = mapped_column(JSON)
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 

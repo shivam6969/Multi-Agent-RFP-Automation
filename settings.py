@@ -111,6 +111,9 @@ CHECKPOINT_DB_PATH: str = os.environ.get(
     "SYNAPSE_CHECKPOINT_DB_PATH", str(VAR_DIR / "checkpoints.db")
 )
 
+# How long a proposal's prices are valid (shown on the cover and in terms).
+PROPOSAL_VALIDITY_DAYS: int = 90
+
 # Generated proposal PDFs, one folder per project.
 PROPOSALS_DIR: str = os.environ.get("SYNAPSE_PROPOSALS_DIR", str(VAR_DIR / "proposals"))
 

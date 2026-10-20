@@ -1,8 +1,11 @@
 """
 utils/llm.py
 ------------
-Thin wrapper around the OpenRouter API (OpenAI-compatible) so every agent
-uses the same initialisation logic and we only import openai in one place.
+Thin wrappers around the two LLM providers so every agent uses the same
+initialisation logic:
+
+  chat_completion()    OpenRouter (OpenAI-compatible), used by all agents
+  gemini_completion()  Google Gemini, used to write long proposal text
 """
 
 from __future__ import annotations
@@ -12,7 +15,37 @@ from typing import Optional
 
 from openai import OpenAI
 
-from settings import OPENROUTER_API_KEY, LLM_MODEL
+from settings import GEMINI_API_KEY, GEMINI_MODEL, OPENROUTER_API_KEY, LLM_MODEL
+
+
+def gemini_key() -> str:
+    return os.environ.get("GEMINI_API_KEY") or GEMINI_API_KEY
+
+
+def gemini_completion(
+    prompt: str,
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 8192,
+    model: str = GEMINI_MODEL,
+    api_key: Optional[str] = None,
+) -> str:
+    """Single-turn Gemini call. Raises ValueError if no key is configured."""
+    key = api_key or gemini_key()
+    if not key:
+        raise ValueError(
+            "GEMINI_API_KEY is not set. Add it to a .env file in the project root "
+            "(see .env.example) or set it as an environment variable."
+        )
+    from google import genai
+
+    client = genai.Client(api_key=key)
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config={"temperature": temperature, "max_output_tokens": max_tokens},
+    )
+    return response.text or ""
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 

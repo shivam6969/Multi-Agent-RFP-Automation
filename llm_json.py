@@ -19,7 +19,7 @@ from typing import Any, Type, TypeVar
 
 from pydantic import TypeAdapter, ValidationError
 
-from llm import chat_completion
+from llm import chat_completion, gemini_completion
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +66,28 @@ def chat_json(
     user: str,
     schema: Type[T] | Any,
     retries: int = 1,
+    provider: str = "openrouter",
     **llm_kwargs: Any,
 ) -> T:
     """
     Call the LLM and return its reply validated as *schema* (a pydantic model
     or any type pydantic understands, e.g. List[MyModel]).
+
+    provider: "openrouter" (default; all agents) or "gemini" (long proposal
+    text). Gemini accepts temperature / max_tokens / api_key.
     """
     adapter = TypeAdapter(schema)
     system = f"{system.rstrip()} {JSON_ONLY}"
     prompt = user
     last_error: Exception | None = None
 
+    def complete(text: str) -> str:
+        if provider == "gemini":
+            return gemini_completion(f"{system}\n\n{text}", **llm_kwargs)
+        return chat_completion(system=system, user=text, **llm_kwargs)
+
     for attempt in range(retries + 1):
-        raw = chat_completion(system=system, user=prompt, **llm_kwargs)
+        raw = complete(prompt)
         try:
             return adapter.validate_python(extract_json(raw))
         except (ValueError, ValidationError) as exc:  # includes JSONDecodeError

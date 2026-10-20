@@ -53,6 +53,11 @@ class AgentState(TypedDict, total=False):
     pricing_summary: Dict[str, Any]        # totals + applied margin metadata
     quote_payload: Dict[str, Any]          # contract passed to quotation/pdf generator
 
+    # ── Proposal (report agent / proposal review) ────────────────────────────
+    rfp_meta: Dict[str, Any]               # title, buyer, reference, deadline, location (from the RFP record)
+    proposal_sections: List[Dict[str, Any]]  # [{key, title, body, ai_generated, edited}]
+    proposal_meta: Dict[str, Any]          # reference, generated, valid_until, buyer, profile snapshot
+
     # ── Report Agent outputs ──────────────────────────────────────────────────
     report_pdf_path: str                   # absolute path to the generated PDF
     report_text: str                       # raw LLM-generated proposal text
