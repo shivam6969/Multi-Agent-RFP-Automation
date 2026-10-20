@@ -16,7 +16,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,6 +56,7 @@ def create_app(
     var_dir: Optional[Path] = None,
     run_inline: bool = False,
     warm_up: bool = True,
+    frontend_dist: Optional[str] = None,
 ) -> FastAPI:
     var = Path(var_dir or VAR_DIR)
     ctx = AppContext(
@@ -86,4 +89,32 @@ def create_app(
 
     for module in (routes_auth, routes_rfps, routes_projects, routes_catalogue):
         app.include_router(module.router)
+    app.include_router(routes_projects.rules_router)
+
+    _serve_frontend(app, Path(frontend_dist) if frontend_dist else FRONTEND_DIST)
     return app
+
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+def _serve_frontend(app: FastAPI, dist: Path) -> None:
+    """
+    Serve the built dashboard (frontend/dist, made by `npm run build`) from
+    the same address as the API. Unknown non-API paths return index.html so
+    the React router can handle them (e.g. /projects/abc after a refresh).
+    """
+    if not (dist / "index.html").is_file():
+        logger.info("No built UI at %s; run `npm run build` in frontend/ (API still works)", dist)
+        return
+
+    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str):
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file = (dist / path).resolve()
+        if path and file.is_file() and dist.resolve() in file.parents:
+            return FileResponse(file)
+        return FileResponse(dist / "index.html")

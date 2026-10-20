@@ -30,6 +30,24 @@ from .schemas import (
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+rules_router = APIRouter(prefix="/api/pricing", tags=["projects"])
+
+
+@rules_router.get("/rules")
+def pricing_rules(_: User = Depends(current_user)) -> Dict[str, Any]:
+    """The commercial rules the UI shows (slider limits, GST, discount tiers)."""
+    r = PRICING_RULES
+    return {
+        "base_margin_pct": r.base_margin_pct,
+        "min_margin_pct": r.min_margin_pct,
+        "max_margin_pct": r.max_margin_pct,
+        "gst_rate_pct": r.gst_rate_pct,
+        "currency": r.currency,
+        "volume_discount_tiers": r.volume_discount_tiers,
+        "payment_terms_discount_pct": r.payment_terms_discount_pct,
+        "freight_flat_inr": r.freight_flat_inr,
+        "default_qty": r.default_qty,
+    }
 
 # What the background job is doing, by the stage it starts from.
 PROGRESS_AFTER = {

@@ -24,12 +24,23 @@ router = APIRouter(prefix="/api/rfps", tags=["rfps"])
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
+_GENERIC_HEADING = re.compile(
+    r"^(request for (proposal|quotation)|rfp|rfq|tender( document)?|bid document|notice inviting tender)"
+    r"\s*(\([^)]*\))?\s*[:.\-]?$",
+    re.I,
+)
+
+
 def _guess_title(text: str, fallback: str) -> str:
-    """First substantial line of the document, e.g. "Request for Proposal (RFP)"."""
+    """
+    First substantial line of the document, skipping generic headings like
+    "Request for Proposal (RFP)" so the title says what is being bought.
+    """
     for line in text.splitlines():
         line = re.sub(r"\s+", " ", line).strip()
-        if len(line) >= 12 and not line.lower().startswith(("page ", "dated")):
-            return line[:200]
+        if len(line) < 12 or line.lower().startswith(("page ", "dated")) or _GENERIC_HEADING.match(line):
+            continue
+        return line[:200]
     return fallback
 
 

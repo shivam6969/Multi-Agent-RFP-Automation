@@ -144,6 +144,50 @@ class RfpTests(ApiTestCase):
         self.assertIn("OCR", scan.json()["detail"])
 
 
+class TitleGuessTests(unittest.TestCase):
+    def test_skips_generic_headings(self) -> None:
+        from api.routes_rfps import _guess_title
+        self.assertEqual(_guess_title("Request for Proposal (RFP)\nSupply of Modular Switches\n", "fb"),
+                         "Supply of Modular Switches")
+        self.assertEqual(_guess_title("Request for Proposal - Supply of Modular Switches\n", "fb"),
+                         "Request for Proposal - Supply of Modular Switches")
+        self.assertEqual(_guess_title("RFP\n", "fallback"), "fallback")
+
+
+class UiServingTests(ApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        dist = self.tmp / "dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text("<!doctype html><div id=root></div>", encoding="utf-8")
+        (dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+        app = create_app(db_path=self.db_path, workflow=self.workflow, var_dir=self.tmp,
+                         run_inline=True, warm_up=False, frontend_dist=str(dist))
+        self.ui = TestClient(app)
+
+    def test_spa_routes_and_assets(self) -> None:
+        self.assertIn("id=root", self.ui.get("/").text)
+        self.assertIn("id=root", self.ui.get("/projects/abc123").text)   # React route after refresh
+        self.assertEqual(self.ui.get("/assets/app.js").text, "console.log(1)")
+        api_404 = self.ui.get("/api/does-not-exist")
+        self.assertEqual(api_404.status_code, 404)
+        self.assertEqual(api_404.json()["detail"], "Not found")
+
+    def test_cannot_read_files_outside_the_ui_folder(self) -> None:
+        (self.tmp / "secret.txt").write_text("TOP SECRET", encoding="utf-8")   # sibling of dist/
+        for path in ("/%2e%2e/secret.txt", "/..%2Fsecret.txt", "/assets/..%2F..%2Fsecret.txt"):
+            with self.subTest(path=path):
+                r = self.ui.get(path)
+                self.assertNotIn("TOP SECRET", r.text)
+
+    def test_pricing_rules_endpoint(self) -> None:
+        self.assertEqual(self.client.get("/api/pricing/rules").status_code, 401)
+        self.login()
+        rules = self.client.get("/api/pricing/rules").json()
+        self.assertEqual((rules["min_margin_pct"], rules["max_margin_pct"], rules["gst_rate_pct"]), (0.0, 60.0, 18.0))
+        self.assertEqual(len(rules["volume_discount_tiers"]), 4)
+
+
 class ProjectFlowTests(ApiTestCase):
     def setUp(self) -> None:
         super().setUp()
