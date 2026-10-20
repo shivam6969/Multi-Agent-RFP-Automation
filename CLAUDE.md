@@ -47,6 +47,7 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `frontend/` React 18 + TypeScript + Vite 6 + Tailwind 3 + React Query 5 + lucide icons (no component library; small primitives in `src/components/ui.tsx`). `npm run build` → `frontend/dist`, which FastAPI serves at / with SPA fallback (`api/main._serve_frontend`). Dev: `npm run dev` on :5173 proxies /api to :8000. Screens: Login/register, Home (dashboard + bell reminders), New Session (upload), RFPs/Documents (selection), Projects (stage-filtered lists), History (finished proposals only, outcome filters), ProjectPage → RequirementsReview / MatchingReview / PricingReview / Success, plus working/failed states. Pages poll `GET /api/projects/{id}` while `running`. Pricing preview sends only quantities the reviewer changed (sent ones become qty_source "reviewer"). "Accept all" skips items flagged `duplicate_of`. Types in `src/api/types.ts` mirror the API by hand.
 - `db.py` tables also: users, sessions, rfps, projects (summary columns; full state is in the LangGraph checkpoint, thread_id = project id). SQLite returns naive datetimes; treat them as UTC. `projects.completed_at` is set by `sync_project` when a project first reaches done, `outcome_at` by the outcome endpoint. New nullable columns reach existing databases via `db._add_missing_columns()` (create_all never alters tables); non-nullable columns need a real migration.
 - `api/routes_dashboard.py` `GET /api/dashboard`: `build_dashboard(projects, rfps, today)` is a pure function over the DB rows (no LLM, no checkpoints): KPIs with this/last-month counts, reminders derived from deadlines + project stage (newest project per RFP counts), all deadlines for the calendar, six-month generated-vs-won (bucketed by `completed_at`), pending RFPs. Team-wide, not per user.
+- `start.py` (+ `start.bat`, `start.sh`, which only create `venv/`): one-command start. Pip installs when the `requirements.txt` hash changes (stamp in the venv), creates `.env` from the example, rebuilds `frontend/dist` when the UI sources' hash changes (`dist/.source-hash`), runs `python -m api`, waits for `/api/health`, opens the browser. `docs/DEMO.md` is the presenter walkthrough.
 - `tests/` unit tests (offline; `tests/__init__.py` blanks API keys) and `run_*.py` manual runners
 - `data/catalogue/` Havells catalogue (`havells.json`, small/large chunk files); `data/samples/sample_rfp.pdf` the one real sample RFP
 - `var/` (gitignored) runtime output: database, uploads, index cache, generated proposals
@@ -63,8 +64,8 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 7. ~~Matching sequential.~~ Fixed: per-item matching runs in a thread pool (`LLM_MAX_CONCURRENCY`, default 4).
 8. ~~Regex JSON parsing.~~ Fixed for extraction, classification, atomising and product picks: `llm_json.chat_json()` validates against pydantic schemas and retries once. (Router and synthesis return free text and don't need it.)
 9. ~~No pause points.~~ Fixed: `workflow.py` (separate graph from master_agent's Q&A graph) pauses with `interrupt()` at requirements_review, matching_review, pricing_review; SqliteSaver at `var/checkpoints.db` (`SYNAPSE_CHECKPOINT_DB_PATH`). `ProjectWorkflow.start/resume/retry/status`; decisions are pydantic models (`DECISION_SCHEMAS`) and are dry-run applied before resuming so bad input never advances the graph. Review nodes must have no side effects before `interrupt()` (they re-run on resume).
-10. `_open_pdf` in master_agent.py uses `os.startfile` (Windows only); remove from library code.
-11. Agents print banner output; move to logging so an API/UI can capture progress.
+10. ~~`os.startfile`.~~ Fixed: `_open_pdf` (CLI only) uses `webbrowser` + `Path.as_uri()`.
+11. ~~Agents print.~~ Fixed: library modules only `logger.info` (report boxes built as one string, one record); entry points call `log_setup.setup_logging()`, which also switches stdout/stderr to UTF-8 (piped output on Windows was cp1252 and crashed on ₹ / box characters). Don't add `print` to library code.
 
 ## Discovery agent
 `discovery/` package (done in step 5). Sources behind one interface (`base.DiscoverySource`, `DiscoveryQuery`, `RfpCandidate`):
@@ -88,6 +89,7 @@ Legacy notes (original code in `legacy/gem_scraper/`, reference only):
 
 ## Commands
 ```
+start.bat                                        # everything: setup, build, server, browser
 python -m venv venv && venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 copy .env.example .env                           # then add your keys

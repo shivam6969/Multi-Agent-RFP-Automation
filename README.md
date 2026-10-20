@@ -1,11 +1,57 @@
-# Multi-Agent RFP Automation
+# SYNAPSE: Multi-Agent RFP Automation
 
-An AI-powered pipeline that automates end-to-end analysis of a **Request for Proposal (RFP)** document against a **business-unit product catalog**. The system classifies each query, routes it through the relevant agents, and returns a synthesised procurement response — including gap analysis, pricing, and proposal-PDF generation.
+A local web dashboard that takes a tender (**Request for Proposal**, RFP) from
+discovery to a priced proposal PDF. AI agents read the RFP, match every
+requirement to the electrical product catalogue (Havells) and draft the
+proposal text; a person reviews and approves each step; prices are calculated
+by fixed rules, never by the AI.
+
+**Discover / upload RFP → Requirements ⏸ → Product matching ⏸ → Pricing ⏸ → Proposal ⏸ → PDF**
+(⏸ = you review, edit and approve before the next agent runs)
+
+BML Munjal University, Project-III/IV: Shivam, Lakshay, Vidipt, Khushi.
+
+---
+
+## Quick start
+
+You need **Python 3.12**, **Node.js 18+** and an **OpenRouter API key**
+(a **Gemini API key** is optional; it writes the proposal text).
+
+```bash
+start.bat            # Windows: double-click it, or run it in a terminal
+./start.sh           # macOS / Linux
+```
+
+The first run creates `venv/`, installs the Python packages (several minutes:
+PyTorch is large), builds the dashboard and creates `.env` from `.env.example`.
+Put your keys in `.env`:
+
+```
+OPENROUTER_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+then run it again. The browser opens http://127.0.0.1:8000; create an account
+and start a session. Later runs start in under a minute (the AI models load
+once per start). Stop it with **Ctrl+C** in that window.
+
+Options: `python start.py --port 8001 --no-browser --skip-build`.
+Your data stays on this laptop in `var/` (database, uploads, proposals).
+A guided demo script is in [docs/DEMO.md](docs/DEMO.md).
+
+**What is demo data:** stock levels are synthetic (labelled "demo"), "Sample
+tenders" are generated with fictitious buyers and stamped as samples, and the
+company in **Settings** is a placeholder until you enter your own. Live GeM
+scraping is off by default.
+
+The rest of this README covers the agents, the command-line tools and the API.
 
 ---
 
 ## Table of Contents
 
+- [Quick start](#quick-start)
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Agent Pipeline](#agent-pipeline)
@@ -113,7 +159,17 @@ Classifies the incoming user query into one of six route labels using the LLM at
 
 ```
 .
-├── master_agent.py          # LangGraph orchestrator and CLI entrypoint
+├── start.py / start.bat / start.sh   # one-command start (setup, build, server, browser)
+├── log_setup.py             # logging for command-line entry points (UTF-8 safe)
+├── workflow.py              # review workflow: agents with pause points (LangGraph + SQLite)
+├── api/                     # FastAPI backend for the dashboard (python -m api)
+├── frontend/                # React dashboard (built into frontend/dist)
+├── discovery/               # Discovery Agent: sample tenders, uploads, GeM (off)
+├── db.py / catalogue.py     # SQLite database; catalogue + demo stock loader
+├── proposal_writer.py       # AI proposal sections (no amounts)
+├── proposal_pdf.py          # deterministic proposal PDF
+├── company_profile.py       # "Prepared by" details (Settings page)
+├── master_agent.py          # LangGraph Q&A orchestrator and CLI entrypoint
 ├── bu_agent.py              # BU node wrapper used by the graph
 ├── rfp_agent.py             # RFP RAG node — reads and analyses the RFP PDF
 ├── matching_agent.py        # Matching node — requirement vs. catalog gap analysis
@@ -153,6 +209,8 @@ Classifies the incoming user query into one of six route labels using the LLM at
 ---
 
 ## Installation
+
+`start.bat` / `start.sh` (see [Quick start](#quick-start)) do all of this. By hand:
 
 ```bash
 # Clone the repository
@@ -456,7 +514,11 @@ updated_items, summary = reprice_with_margin(line_items, new_margin_pct=15.0, ru
 
 | Symptom | Fix |
 |---------|-----|
-| `ModuleNotFoundError` | Run `pip install -r requirements.txt` in the active virtual environment |
+| `ModuleNotFoundError` | Run `pip install -r requirements.txt` in the active virtual environment (or use `start.bat`, which does it) |
+| Dashboard says "No OpenRouter API key" | Put `OPENROUTER_API_KEY=...` in `.env` in the project folder and restart |
+| "address already in use" on start | SYNAPSE is already running in another window, or use `python start.py --port 8001` |
+| Dashboard looks out of date after `git pull` | Run `start.bat` again (it rebuilds when the UI code changed), or `npm run build` in `frontend/` |
+| `UnicodeEncodeError` in old versions | Fixed: agents log instead of printing; entry points use UTF-8 output |
 | `ValueError: OPENROUTER_API_KEY is not set` | Add it to `.env` in the project root (see `.env.example`) |
 | `GEMINI_API_KEY is not set` | Add it to `.env` before running proposal/report generation queries |
 | `FileNotFoundError` for PDF or catalog files | Check the files exist under `data/` and that any `RFP_PDF_PATH` override in `.env` is correct |
