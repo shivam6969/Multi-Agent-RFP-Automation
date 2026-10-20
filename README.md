@@ -288,6 +288,33 @@ At the pricing review: `{"margin_pct": 18, "advance_payment": true, "freight_inr
 
 ---
 
+## Backend API (for the dashboard)
+
+```bash
+python -m api          # http://127.0.0.1:8000  — interactive docs at /docs
+```
+
+It runs only on your own laptop (bound to 127.0.0.1). Data lives in `var/`:
+`synapse.db` (users, RFPs, projects, catalogue), `checkpoints.db` (review
+workflow progress), `uploads/`, `proposals/`, `exports/`.
+
+| Area | Endpoints |
+|------|-----------|
+| Accounts | `POST /api/auth/register`, `POST /api/auth/login` (`remember`), `POST /api/auth/logout`, `GET /api/auth/me` |
+| RFPs | `POST /api/rfps/upload` (PDF), `GET /api/rfps?q=`, `GET /api/rfps/{id}`, `GET /api/rfps/{id}/document` |
+| Projects | `POST /api/projects` `{rfp_id}`, `GET /api/projects`, `GET /api/projects/{id}`, `POST /api/projects/{id}/review` `{decision}`, `POST /api/projects/{id}/retry` |
+| Pricing | `POST /api/projects/{id}/pricing/preview` (margin slider, saves nothing), `GET /api/projects/{id}/quote.csv` |
+| Proposal / history | `GET /api/projects/{id}/proposal.pdf`, `PATCH /api/projects/{id}/outcome` `{submitted|won|lost}` |
+| Catalogue | `GET /api/catalogue/products?q=` ("Change Product" search) |
+| Health | `GET /api/health` (whether API keys are configured; never the keys) |
+
+Starting a project or sending a review returns immediately (`stage: "running"`
+with a `progress` message); the work continues in the background and the UI
+polls `GET /api/projects/{id}`. Review `decision` bodies are the same as in the
+workflow section above.
+
+---
+
 ## Running Tests
 
 Unit tests run offline: every LLM call is mocked, and the test package blanks the API keys so an unmocked call fails instead of spending credit.

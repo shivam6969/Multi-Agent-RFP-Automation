@@ -14,3 +14,7 @@ SQLAlchemy==2.0.55
 pydantic==2.14.1
 langgraph-checkpoint==4.3.0
 langgraph-checkpoint-sqlite==3.1.2
+fastapi==0.150.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+httpx==0.28.1  # used by the API tests (FastAPI TestClient)

@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+import pymupdf
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from api.main import create_app
+from api.security import hash_password, verify_password
+from db import Project, get_engine
+from tests.test_workflow import SWITCH_ORO, FakeSteps
+from workflow import ProjectWorkflow
+
+RFP_TEXT = (
+    "Request for Proposal - Supply of Modular Switches\n"
+    "1. Introduction\nABC Infrastructure Pvt. Ltd. invites proposals for modular switches, "
+    "sockets and plates for residential projects in Gurugram.\n"
+)
+
+
+def make_pdf(text: str) -> bytes:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    if text:
+        page.insert_textbox(pymupdf.Rect(40, 40, 560, 800), text, fontsize=10)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+class SecurityTests(unittest.TestCase):
+    def test_password_hash_round_trip(self) -> None:
+        stored = hash_password("correct horse")
+        self.assertTrue(stored.startswith("scrypt$"))
+        self.assertNotIn("correct horse", stored)
+        self.assertTrue(verify_password("correct horse", stored))
+        self.assertFalse(verify_password("wrong horse", stored))
+        self.assertFalse(verify_password("x", "garbage"))
+
+
+class ApiTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.steps = FakeSteps()
+        self.steps.proposal = self.fake_proposal
+        self.workflow = ProjectWorkflow(str(self.tmp / "checkpoints.db"), nodes=self.steps.nodes())
+        self.addCleanup(self.workflow.close)
+        self.db_path = str(self.tmp / "app.db")
+        app = create_app(db_path=self.db_path, workflow=self.workflow, var_dir=self.tmp,
+                         run_inline=True, warm_up=False)
+        self.client = TestClient(app)
+        self.client.__enter__()
+        self.addCleanup(self.client.__exit__, None, None, None)
+        self.addCleanup(get_engine(self.db_path).dispose)
+
+    def fake_proposal(self, state):
+        path = self.tmp / "proposal.pdf"
+        path.write_bytes(make_pdf("Vendor proposal"))
+        state["report_pdf_path"] = str(path)
+        return state
+
+    def login(self, email="khushi@example.com") -> None:
+        self.client.post("/api/auth/register",
+                         json={"email": email, "name": "Khushi", "password": "s3cret-pass"})
+        r = self.client.post("/api/auth/login", json={"email": email, "password": "s3cret-pass"})
+        self.assertEqual(r.status_code, 200)
+
+    def upload(self, text: str = RFP_TEXT, name: str = "rfp.pdf", data: bytes = None):
+        return self.client.post("/api/rfps/upload",
+                                files={"file": (name, data or make_pdf(text), "application/pdf")})
+
+
+class AuthTests(ApiTestCase):
+    def test_register_login_me_logout(self) -> None:
+        r = self.client.post("/api/auth/register",
+                             json={"email": "Khushi@Example.com", "name": "Khushi", "password": "s3cret-pass"})
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["email"], "khushi@example.com")
+
+        dup = self.client.post("/api/auth/register",
+                               json={"email": "khushi@example.com", "name": "K", "password": "another-pass"})
+        self.assertEqual(dup.status_code, 409)
+
+        bad = self.client.post("/api/auth/login", json={"email": "khushi@example.com", "password": "nope-nope"})
+        self.assertEqual(bad.status_code, 401)
+
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+        ok = self.client.post("/api/auth/login",
+                              json={"email": "khushi@example.com", "password": "s3cret-pass", "remember": True})
+        self.assertEqual(ok.status_code, 200)
+        self.assertIn("synapse_session", ok.cookies)
+        self.assertEqual(self.client.get("/api/auth/me").json()["name"], "Khushi")
+
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+
+    def test_validation_and_protection(self) -> None:
+        short = self.client.post("/api/auth/register",
+                                 json={"email": "a@b.co", "name": "A", "password": "short"})
+        self.assertEqual(short.status_code, 422)
+        for path in ("/api/rfps", "/api/projects", "/api/catalogue/products"):
+            self.assertEqual(self.client.get(path).status_code, 401, path)
+
+    def test_health_never_reveals_keys(self) -> None:
+        body = self.client.get("/api/health").json()
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(set(body), {"status", "llm_key_configured", "gemini_key_configured"})
+
+
+class RfpTests(ApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.login()
+
+    def test_upload_list_get_and_document(self) -> None:
+        pdf = make_pdf(RFP_TEXT)   # PDFs embed a timestamp: reuse the exact bytes
+        r = self.upload(data=pdf)
+        self.assertEqual(r.status_code, 201)
+        rfp = r.json()
+        self.assertEqual(rfp["title"], "Request for Proposal - Supply of Modular Switches")
+        self.assertEqual((rfp["source"], rfp["pages"]), ("upload", 1))
+
+        again = self.upload(name="copy.pdf", data=pdf)
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json()["id"], rfp["id"])
+
+        self.assertEqual([x["id"] for x in self.client.get("/api/rfps").json()], [rfp["id"]])
+        self.assertEqual(len(self.client.get("/api/rfps?q=modular").json()), 1)
+        self.assertEqual(len(self.client.get("/api/rfps?q=transformer").json()), 0)
+        doc = self.client.get(f"/api/rfps/{rfp['id']}/document")
+        self.assertEqual(doc.headers["content-type"], "application/pdf")
+        self.assertEqual(self.client.get("/api/rfps/nope").status_code, 404)
+
+    def test_rejects_non_pdf_and_scans(self) -> None:
+        not_pdf = self.client.post("/api/rfps/upload", files={"file": ("x.pdf", b"hello", "application/pdf")})
+        self.assertEqual(not_pdf.status_code, 422)
+        scan = self.upload(text="")
+        self.assertEqual(scan.status_code, 422)
+        self.assertIn("OCR", scan.json()["detail"])
+
+
+class ProjectFlowTests(ApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.login()
+        self.rfp_id = self.upload().json()["id"]
+
+    def start(self) -> dict:
+        r = self.client.post("/api/projects", json={"rfp_id": self.rfp_id})
+        self.assertEqual(r.status_code, 202)
+        return r.json()
+
+    def review(self, pid: str, decision: dict):
+        return self.client.post(f"/api/projects/{pid}/review", json={"decision": decision})
+
+    def test_full_flow_over_http(self) -> None:
+        project = self.start()
+        pid = project["id"]
+        self.assertEqual(project["stage"], "requirements_review")
+        self.assertEqual(len(project["requirements"]), 3)
+        self.assertEqual(project["rfp"]["id"], self.rfp_id)
+
+        # Requirements → matching
+        r = self.review(pid, {})
+        self.assertEqual(r.json()["stage"], "matching_review")
+        self.assertEqual(r.json()["match_summary"]["needs_review"], 1)
+
+        # Change Product: search the catalogue, then swap
+        found = self.client.get("/api/catalogue/products", params={"q": "16A 2Way oro metallica"}).json()
+        self.assertIn(SWITCH_ORO.id, [p["product_id"] for p in found])
+        r = self.review(pid, {"decisions": [{"id": "R1", "action": "change", "product_id": SWITCH_ORO.id}],
+                              "accept_all": True})
+        project = r.json()
+        self.assertEqual(project["stage"], "pricing_review")
+        self.assertEqual(project["review_log"][-1]["reviewer"], "Khushi")
+        saved_total = project["pricing_summary"]["grand_total"]
+
+        # Margin slider preview: instant, nothing saved
+        preview = self.client.post(f"/api/projects/{pid}/pricing/preview",
+                                   json={"margin_pct": 30, "quantities": {"R2": 50}}).json()
+        self.assertEqual(preview["pricing_summary"]["margin_pct"], 30.0)
+        self.assertNotEqual(preview["pricing_summary"]["grand_total"], saved_total)
+        tv = next(li for li in preview["line_items"] if li["requirement_id"] == "R2")
+        self.assertEqual((tv["qty"], tv["qty_source"]), (50, "reviewer"))
+        unchanged = self.client.get(f"/api/projects/{pid}").json()
+        self.assertEqual(unchanged["pricing_summary"]["grand_total"], saved_total)
+
+        csv = self.client.get(f"/api/projects/{pid}/quote.csv")
+        self.assertEqual(csv.status_code, 200)
+        self.assertIn("requirement,qty", csv.text)
+
+        # Pricing → proposal
+        r = self.review(pid, {"margin_pct": 30, "quantities": {"R2": 50}})
+        project = r.json()
+        self.assertEqual(project["stage"], "done")
+        self.assertTrue(project["proposal_available"])
+        self.assertEqual(project["pricing_summary"]["margin_pct"], 30.0)
+        pdf = self.client.get(f"/api/projects/{pid}/proposal.pdf")
+        self.assertEqual(pdf.headers["content-type"], "application/pdf")
+
+        # History
+        outcome = self.client.patch(f"/api/projects/{pid}/outcome", json={"outcome": "won"}).json()
+        self.assertEqual(outcome["outcome"], "won")
+        listed = self.client.get("/api/projects").json()
+        self.assertEqual([(p["id"], p["stage"], p["outcome"]) for p in listed], [(pid, "done", "won")])
+        self.assertEqual(listed[0]["grand_total"], project["pricing_summary"]["grand_total"])
+
+    def test_bad_review_is_rejected_and_nothing_moves(self) -> None:
+        pid = self.start()["id"]
+        self.review(pid, {})
+        r = self.review(pid, {"decisions": [{"id": "R9", "action": "accept"}]})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("Unknown item id", r.json()["detail"])
+        self.assertEqual(self.client.get(f"/api/projects/{pid}").json()["stage"], "matching_review")
+        bad_qty = self.client.post(f"/api/projects/{pid}/pricing/preview", json={"margin_pct": 10})
+        self.assertEqual(bad_qty.status_code, 409)   # not priced yet
+
+    def test_failure_then_retry(self) -> None:
+        self.steps.fail_extract_once = True
+        project = self.start()
+        self.assertEqual(project["stage"], "failed")
+        self.assertEqual(project["failed_step"], "extract")
+        self.assertIn("OPENROUTER_API_KEY", project["error"])
+
+        r = self.client.post(f"/api/projects/{project['id']}/retry")
+        self.assertEqual(r.json()["stage"], "requirements_review")
+        self.assertIsNone(r.json()["error"])
+
+    def test_busy_project_refuses_reviews(self) -> None:
+        pid = self.start()["id"]
+        with Session(get_engine(self.db_path)) as db:
+            db.get(Project, pid).running = True
+            db.commit()
+        self.assertEqual(self.client.get(f"/api/projects/{pid}").json()["stage"], "running")
+        self.assertEqual(self.review(pid, {}).status_code, 409)
+
+    def test_unknown_ids(self) -> None:
+        self.assertEqual(self.client.post("/api/projects", json={"rfp_id": "nope"}).status_code, 404)
+        self.assertEqual(self.client.get("/api/projects/nope").status_code, 404)
+        self.assertEqual(self.client.get("/api/projects/nope/proposal.pdf").status_code, 404)
+
+
+if __name__ == "__main__":
+    unittest.main()
