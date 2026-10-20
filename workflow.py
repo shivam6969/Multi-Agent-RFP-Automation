@@ -364,8 +364,12 @@ class ProjectWorkflow:
             initial["user_query"] = user_query
         return self._run(project_id, initial)
 
-    def resume(self, project_id: str, decision: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate a reviewer decision for the current stage and continue."""
+    def validate_decision(self, project_id: str, decision: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Check a reviewer decision against the current stage without moving
+        the graph. Returns the normalised decision; raises ValueError (incl.
+        pydantic ValidationError) or KeyError for an unknown project.
+        """
         current = self.status(project_id)
         stage = current["stage"]
         if stage not in DECISION_SCHEMAS:
@@ -373,7 +377,12 @@ class ProjectWorkflow:
         parsed = DECISION_SCHEMAS[stage].model_validate(decision)
         # Dry run on a copy, so bad ids are rejected before the graph moves on.
         APPLY[stage](copy.deepcopy(current["state"]), parsed)
-        return self._run(project_id, Command(resume=parsed.model_dump()))
+        return parsed.model_dump()
+
+    def resume(self, project_id: str, decision: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate a reviewer decision for the current stage and continue."""
+        checked = self.validate_decision(project_id, decision)
+        return self._run(project_id, Command(resume=checked))
 
     def retry(self, project_id: str) -> Dict[str, Any]:
         """Re-run the step that failed (e.g. after adding a missing API key)."""

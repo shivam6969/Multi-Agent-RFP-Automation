@@ -3,23 +3,29 @@ db.py
 -----
 SQLite database: the single source of truth for structured data.
 
-Tables so far
--------------
+Tables
+------
 products  one row per catalogue item (price stored as a number)
 stock     synthetic demo stock per product (is_demo = True)
 meta      key/value bookkeeping (e.g. hash of the catalogue file last loaded)
+users     dashboard accounts (scrypt password hashes, never plain text)
+sessions  login sessions (only a hash of the cookie token is stored)
+rfps      RFP documents: uploaded, generated samples or discovered
+projects  one review workflow per RFP; summary columns for lists/dashboard.
+          The full working state lives in the LangGraph checkpoint
+          (thread_id = projects.id), see workflow.py.
 
-Users, RFPs, projects and proposals will be added here in later milestones.
 FAISS indexes are a cache built from these tables, never the other way round.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -63,6 +69,68 @@ class Meta(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(String(256))
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    password_hash: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Rfp(Base):
+    __tablename__ = "rfps"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    title: Mapped[str] = mapped_column(String(512))
+    source: Mapped[str] = mapped_column(String(16))          # upload | sample | gem
+    filename: Mapped[str] = mapped_column(String(256))
+    pdf_path: Mapped[str] = mapped_column(String(1024))
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    pages: Mapped[int] = mapped_column(Integer, default=0)
+    buyer: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    deadline: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)   # ISO date
+    location: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    estimated_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    meta: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    rfp_id: Mapped[str] = mapped_column(ForeignKey("rfps.id"), index=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Cached from the workflow so lists don't need to open every checkpoint.
+    stage: Mapped[str] = mapped_column(String(32), default="queued")
+    running: Mapped[bool] = mapped_column(Boolean, default=False)
+    progress: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    grand_total: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fulfillment_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    proposal_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    outcome: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)   # submitted | won | lost
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 @lru_cache(maxsize=None)

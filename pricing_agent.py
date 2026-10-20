@@ -287,16 +287,23 @@ def reprice_with_margin(
     *,
     advance_payment: bool = False,
     freight: Optional[float] = None,
+    quantities: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Recompute every line and the totals for a new margin (and optional
-    payment/freight terms) without any retrieval or LLM call. Catalogue
-    fields on each line (product_id, sap_code, packing, stock, qty_source)
-    are kept.
+    payment/freight terms and per-line quantities, keyed by requirement_id)
+    without any retrieval or LLM call. Catalogue fields on each line
+    (product_id, sap_code, packing, stock, qty_source) are kept.
     """
     margin_pct    = _clamp_margin(new_margin_pct, rules)
+    quantities    = quantities or {}
     updated_items = []
     for item in line_items:
+        override = quantities.get(item.get("requirement_id", ""))
+        if override is not None:
+            if int(override) <= 0:
+                raise ValueError(f"Quantity must be positive for {item.get('requirement_id')}")
+            item = {**item, "qty": int(override), "qty_source": "reviewer"}
         updated_items.append({**item, **_build_line_item(
             requirement    = item["requirement"],
             qty            = int(item["qty"]),
