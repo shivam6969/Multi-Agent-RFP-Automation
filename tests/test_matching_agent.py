@@ -110,6 +110,41 @@ class MatchingAgentTests(unittest.TestCase):
         self.assertIn("Fulfillment score: 87.5%", out["fulfillment_report"])
         self.assertIn("Provide GST registration", out["fulfillment_report"])
 
+    def test_same_product_twice_is_flagged(self) -> None:
+        reqs = [
+            {"id": "R1", "requirement": "Supply 16A switches", "weight": 3},
+            {"id": "R2", "requirement": "Supply 16A 2Way switches", "weight": 3},
+        ]
+
+        def llm(*, system, user, **_):
+            if "classify procurement requirements" in system:
+                return json.dumps([{"index": 0, "type": "product_sku"}, {"index": 1, "type": "product_sku"}])
+            if "split compound procurement requirements" in system:
+                return json.dumps([{"index": 0, "items": ["Supply 16A switches"]},
+                                   {"index": 1, "items": ["Supply 16A 2Way switches"]}])
+            return fake_llm(system=system, user=user)
+
+        with patch("product_matcher.get_bu_rag_tool", return_value=SEARCH), \
+             patch("llm_json.chat_completion", side_effect=llm):
+            out = matching_agent_node({"rfp_requirements": reqs})
+        first, second = out["matched_items"]
+        # Equal scores: the earlier item keeps the product.
+        self.assertEqual(first["status"], "matched")
+        self.assertNotIn("duplicate_of", first)
+        self.assertEqual(second["status"], "needs_review")
+        self.assertEqual(second["duplicate_of"], "R1")
+        self.assertIn("possible duplicate", second["rationale"])
+        self.assertIn("possible duplicate of R1", out["fulfillment_report"])
+
+        # A stronger later match keeps it; the vaguer earlier line is flagged.
+        scored = FakeSearchTool({"2Way": [(SWITCH_16A, 0.99)], "16A": [(SWITCH_16A, 0.93)]})
+        with patch("product_matcher.get_bu_rag_tool", return_value=scored), \
+             patch("llm_json.chat_completion", side_effect=llm):
+            out = matching_agent_node({"rfp_requirements": reqs})
+        first, second = out["matched_items"]
+        self.assertEqual(first["duplicate_of"], "R2")
+        self.assertNotIn("duplicate_of", second)
+
     def test_no_requirements(self) -> None:
         out = matching_agent_node({"rfp_requirements": []})
         self.assertEqual(out["matched_items"], [])

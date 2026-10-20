@@ -74,10 +74,12 @@ You are a procurement assistant. Classify each requirement below as either
                  Examples: switches, plates, sockets, fan regulators, USB chargers.
 
 "compliance"   — A vendor qualification, eligibility criterion, logistical
-                 condition, documentation obligation, or process requirement.
+                 condition, documentation obligation, process requirement, or a
+                 general specification that does not name a product to buy.
                  Examples: GST registration, delivery timelines, company profile,
                  past experience, packaging rules, supply capacity demonstration,
-                 "submit a price list".
+                 "submit a price list", "rated current specifications",
+                 "availability of indicator-based variants", "HSN compliance".
 
 Return ONLY a JSON array with one entry per input, in the same order:
   [{{"index": <input index>, "type": "product_sku" | "compliance"}}, ...]
@@ -232,6 +234,32 @@ def _product_item(item: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any
     return result
 
 
+def _flag_duplicates(items: List[Dict[str, Any]]) -> None:
+    """
+    If several items resolve to the same catalogue product (e.g. a vague line
+    like "switches with indicator" and a specific "32A DP switches"), the
+    strongest match keeps it (highest match score, then earliest) and the
+    others go to review instead of being quoted twice silently.
+    """
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in items:
+        if item.get("product_id") and item.get("status") in ("matched", "needs_review"):
+            groups.setdefault(item["product_id"], []).append(item)
+
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        keeper = max(group, key=lambda m: (m.get("match_score") or 0, -items.index(m)))
+        for item in group:
+            if item is keeper:
+                continue
+            item["status"] = "needs_review"
+            item["duplicate_of"] = keeper["id"]
+            item["rationale"] = (f"Same product as {keeper['id']}; possible duplicate. "
+                                 f"{item.get('rationale', '')}").strip()
+            item["evidence"] = item["rationale"]
+
+
 def _compliance_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
         **item,
@@ -302,6 +330,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
             matched_items.append(_compliance_item(req))
         else:
             matched_items.extend(matched_by_id[i["id"]] for i in product_items[req["id"]])
+    _flag_duplicates(matched_items)
 
     summary = match_summary(matched_items)
     state["matched_items"]      = matched_items
@@ -350,8 +379,9 @@ def fulfillment_report(items: List[Dict[str, Any]], summary: Dict[str, Any]) -> 
         if not m.get("product_id"):
             return f"  • {m['requirement']}  →  no catalogue product ({m.get('rationale', '')})"
         score = f"{m['match_score']}% " if m.get("match_score") is not None else ""
+        dup = f"  ⚠ possible duplicate of {m['duplicate_of']}" if m.get("duplicate_of") else ""
         return (f"  • {m['requirement']}  →  {m['product_name']} ({m['product_range']}), "
-                f"SAP {m['sap_code']}, {score}[{m.get('confidence')}]")
+                f"SAP {m['sap_code']}, {score}[{m.get('confidence')}]{dup}")
 
     products = [m for m in items if m.get("type") == "product"]
     groups = [

@@ -27,6 +27,13 @@ T = TypeVar("T")
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
+# Appended to every system prompt. Without it, Llama 4 Scout often "thinks
+# out loud" in Markdown for ambiguous inputs and runs out of tokens before the
+# JSON (measured on the sample RFP: 28 of 40 product picks). With it: 6/6
+# valid on those same items, ~3x faster. OpenRouter's JSON mode is not
+# available for this model (404), so the instruction does the work.
+JSON_ONLY = "Reply with exactly one JSON value and nothing else: no explanation, no steps, no markdown."
+
 
 class LLMOutputError(ValueError):
     """The model did not return valid JSON in the requested shape."""
@@ -66,6 +73,7 @@ def chat_json(
     or any type pydantic understands, e.g. List[MyModel]).
     """
     adapter = TypeAdapter(schema)
+    system = f"{system.rstrip()} {JSON_ONLY}"
     prompt = user
     last_error: Exception | None = None
 
@@ -75,7 +83,8 @@ def chat_json(
             return adapter.validate_python(extract_json(raw))
         except (ValueError, ValidationError) as exc:  # includes JSONDecodeError
             last_error = exc
-            logger.warning("LLM JSON attempt %d failed: %s", attempt + 1, str(exc)[:200])
+            logger.warning("LLM JSON attempt %d failed: %s | reply starts: %r",
+                           attempt + 1, str(exc)[:200], (raw or "")[:120])
             prompt = (
                 f"{user}\n\nYour previous reply could not be used: {str(exc)[:300]}\n"
                 "Reply again with ONLY valid JSON in exactly the requested format."

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, field_validator
 
-from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY, RFP_EXTRACT_WINDOW_CHARS
+from settings import LLM_MAX_CONCURRENCY, OPENROUTER_API_KEY, RFP_EXTRACT_WINDOW_CHARS, RFP_TOP_K
 from rfp_rag import RfpRagConfig, get_rfp_rag_tool
 from llm_json import LLMOutputError, chat_json
 from state import AgentState
@@ -72,9 +72,20 @@ You are an expert procurement analyst.
 Extract every requirement stated in this part of an RFP as a JSON array of
 objects. Include product line items (one entry per product line as written),
 technical specifications, eligibility criteria, delivery/logistics terms and
-submission obligations. Each object must have:
+submission obligations.
+
+If the RFP gives a general scope summary (e.g. "supply switches, plates and
+accessories") AND a detailed list of the same products, extract only the
+detailed list items, not the summary line.
+
+Each object must have:
   - "requirement"  : short plain-English statement of the requirement
-  - "criticality"  : "mandatory" | "high" | "medium" | "low"
+  - "criticality"  : one of
+        "mandatory" — the RFP says must / shall / mandatory, or failing it
+                      disqualifies the bid (e.g. eligibility criteria)
+        "high"      — core product lines and key commercial terms
+        "medium"    — supporting specifications and documents
+        "low"       — nice-to-have or "where applicable" items
   - "quantity"     : integer number of units ONLY if the RFP states an explicit
                      order quantity for this specific item, otherwise null.
                      Do not use monthly supply estimates, packing formats or
@@ -206,7 +217,13 @@ def rfp_agent_node(state: AgentState) -> AgentState:
     rfp_tool = get_rfp_rag_tool(RfpRagConfig(pdf_path=pdf_path))
 
     print("[RfpAgent] Answering user query from RFP …")
-    rfp_answer = rfp_tool.run_query(query, api_key=api_key)
+    # Short RFPs: answer from the whole document (the 3 nearest chunks missed
+    # the buyer's name on the sample RFP). Long ones: the nearest chunks.
+    chunks = getattr(rfp_tool, "chunks", [])
+    whole_doc = 0 < sum(len(c) for c in chunks) <= RFP_EXTRACT_WINDOW_CHARS
+    rfp_answer = rfp_tool.run_query(
+        query, top_k=len(chunks) if whole_doc else RFP_TOP_K, api_key=api_key
+    )
     state["rfp_answer"] = rfp_answer
 
     print("[RfpAgent] Extracting structured requirements …")

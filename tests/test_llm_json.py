@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from pydantic import BaseModel
 
-from llm_json import LLMOutputError, chat_json, extract_json
+from llm_json import JSON_ONLY, LLMOutputError, chat_json, extract_json
 
 
 class _Item(BaseModel):
@@ -33,6 +33,8 @@ class ChatJsonTests(unittest.TestCase):
     def test_valid_reply(self, mock_chat) -> None:
         self.assertEqual(self.call(), [_Item(name="switch", qty=5)])
         self.assertEqual(mock_chat.call_count, 1)
+        # Every structured call tells the model not to "think out loud".
+        self.assertTrue(mock_chat.call_args.kwargs["system"].endswith(JSON_ONLY))
 
     @patch("llm_json.chat_completion",
            side_effect=['[{"name": "switch"}]', '[{"name": "switch", "qty": 5}]'])

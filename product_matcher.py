@@ -69,7 +69,8 @@ Candidate catalogue products:
 
 Pick the single candidate that best matches the RFP item (rating, way/pole,
 module size, product type, colour/range if stated). If none of them is the
-same kind of product, answer null.
+same kind of product, answer null. If several candidates are equally good,
+pick the first of them (the list is ordered best first).
 
 Return ONLY a JSON object: {{"product_id": "<id from the list>" | null, "reason": "<one short sentence>"}}
 """.strip()
@@ -125,8 +126,12 @@ multiple distinct products into individual items — one product per item.
 Rules:
 - "X and Y" / "X or Y" where X and Y are different specs → two items
 - Enumerated variants (e.g. "1-way, 2-way, bell push") → one item each
-- Size/rating RANGES (e.g. "1M to 18M", "6-16A") → one item per standard size
-  or rating (e.g. 1M, 2M, 3M, 4M, 6M, 8M, 12M, 18M)
+- Listed colours or finishes (e.g. "combined plates (White, Grey, Silver)") →
+  one item per colour, keeping the product name ("White combined plate", …)
+- A list of module SIZES given as a range (e.g. "outer plates 1M to 18M") →
+  one item per standard size (1M, 2M, 3M, 4M, 6M, 8M, 12M, 18M)
+- A rating range that is part of ONE product's name stays one item:
+  "Combined sockets (6-16A)" is a single 6-16A combined socket, not 6A/10A/16A
 - Already-atomic requirements → one item, unchanged
 - Never merge, summarise or invent requirements
 

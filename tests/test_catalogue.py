@@ -9,12 +9,34 @@ from catalogue import (
     Catalogue,
     demo_stock_for,
     ensure_loaded,
+    expand_abbreviations,
     flatten_catalogue,
     get_catalogue,
     parse_price,
 )
 from db import get_engine
 from settings import BU_JSON_PATH
+
+
+class AbbreviationTests(unittest.TestCase):
+    def test_expansions(self) -> None:
+        self.assertEqual(expand_abbreviations("16Ax 1way Switch with Ind.."),
+                         "16Ax 1way Switch with Indicator")
+        self.assertEqual(expand_abbreviations("32A DP Switch with ind. (Mega)"),
+                         "32A Double Pole Switch with Indicator (Mega)")
+        self.assertEqual(expand_abbreviations("4 Step Energy Saving Fan Reg."),
+                         "4 Step Energy Saving Fan Regulator")
+
+    def test_full_words_are_left_alone(self) -> None:
+        for name in ("Indicator Lamp", "Fan Regulator", "10A 1Way Switch"):
+            self.assertEqual(expand_abbreviations(name), name)
+
+    def test_search_text_carries_both_names(self) -> None:
+        p = next(p for p in get_catalogue().all_products() if "Ind." in p.item_name)
+        text = p.search_text()
+        self.assertIn(p.item_name, text)
+        self.assertIn("Also described as:", text)
+        self.assertIn("Indicator", text)
 
 
 class ParsePriceTests(unittest.TestCase):

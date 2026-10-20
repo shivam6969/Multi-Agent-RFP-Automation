@@ -14,7 +14,11 @@ class _FakeRfpTool:
         "3. Delivery: within 14 days. Vendor must be ISO certified.",
     ]
 
-    def run_query(self, query: str, api_key=None):
+    def __init__(self) -> None:
+        self.top_k = None
+
+    def run_query(self, query: str, top_k=3, api_key=None):
+        self.top_k = top_k
         return f"Answer: {query}"
 
 
@@ -37,11 +41,20 @@ def fake_llm(*, system: str, user: str, **_):
 
 
 class RfpAgentTests(unittest.TestCase):
-    def run_node(self, llm=fake_llm):
-        with patch("rfp_agent.get_rfp_rag_tool", return_value=_FakeRfpTool()), \
-             patch("rfp_agent.RFP_EXTRACT_WINDOW_CHARS", 60), \
+    def run_node(self, llm=fake_llm, window=60):
+        self.tool = _FakeRfpTool()
+        with patch("rfp_agent.get_rfp_rag_tool", return_value=self.tool), \
+             patch("rfp_agent.RFP_EXTRACT_WINDOW_CHARS", window), \
              patch("llm_json.chat_completion", side_effect=llm):
             return rfp_agent_node({"user_query": "What are the eligibility criteria?"})
+
+    def test_short_rfp_is_answered_from_the_whole_document(self) -> None:
+        self.run_node(window=10_000)
+        self.assertEqual(self.tool.top_k, len(_FakeRfpTool.chunks))
+
+    def test_long_rfp_is_answered_from_the_nearest_chunks(self) -> None:
+        self.run_node(window=60)
+        self.assertEqual(self.tool.top_k, 3)
 
     def test_reads_every_window_and_cleans_results(self) -> None:
         out = self.run_node()

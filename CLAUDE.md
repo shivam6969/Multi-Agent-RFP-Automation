@@ -31,7 +31,9 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
 - `db.py` SQLAlchemy models + engine (SQLite at `var/synapse.db`, override `SYNAPSE_DB_PATH`); `catalogue.py` loads the catalogue JSON into it (auto-reload on file change), parses prices, generates seeded demo stock, lookups by id/SAP. SAP codes are NOT unique (3 duplicates); use `product_id`.
 - `models.py` shared, thread-safe embedder/reranker instances (load once); `embedding_cache.py` disk cache for document embeddings (override dir with `SYNAPSE_CACHE_DIR`)
-- `llm_json.py` `chat_json()` = LLM call + JSON extraction + pydantic validation + one retry; raises `LLMOutputError`. In tests, patch `llm_json.chat_completion`.
+- `llm_json.py` `chat_json()` = LLM call + JSON extraction + pydantic validation + one retry; raises `LLMOutputError`. In tests, patch `llm_json.chat_completion`. It appends `JSON_ONLY` to every system prompt: without it Llama 4 Scout "thinks out loud" in Markdown on ambiguous picks and runs out of tokens (28/40 picks failed in the first live run; 0 after). OpenRouter JSON mode (`response_format`) returns 404 for this model; don't use it.
+- `catalogue.ProductRecord.search_text()` adds an "Also described as" line with abbreviations expanded (Ind.→Indicator, Reg.→Regulator, SP/DP, MCB); the reranker scored "Switches with Indicator" 0.03 against "with Ind." and 0.99 expanded.
+- Matching flags items that resolve to the same product: the highest-scoring keeps it, others get `duplicate_of` and status needs_review.
 - `product_matcher.py` catalogue candidates with reranker scores (calibrated: real products 0.55-0.99, unrelated 0.00; thresholds `MATCH_*` in settings), LLM pick by id (validated), atomise compound requirements.
 - Matching: classify → atomise → per-item match in parallel. Each matched item has id (R1, R1.2…), type product|compliance, status matched|needs_review|gap, product_id, match_score, confidence, alternatives, demo stock. Compliance items are not auto-assessed (status needs_review). `fulfillment_score` covers product items only.
 - RFP extraction reads the whole PDF in `RFP_EXTRACT_WINDOW_CHARS` windows (parallel), dedupes, assigns ids R1…; per-window failures go to state `warnings`.
@@ -77,5 +79,6 @@ python -m venv venv && venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 copy .env.example .env                           # then add your keys
 python master_agent.py "What are the eligibility criteria in the RFP?"
-python -m unittest discover -s tests -t . -v     # offline, 12 tests
+python -m unittest discover -s tests -t . -v     # offline, no API calls
+python workflow.py start --rfp data/samples/sample_rfp.pdf --id demo   # live review flow (needs .env)
 ```

@@ -68,9 +68,18 @@ class ProductRecord:
         return f"{self.brand.title()} {self.range_name}{variant} — {self.item_name}"
 
     def search_text(self) -> str:
-        """Text used to embed this product in the BU RAG JSON index."""
+        """
+        Text used to embed and rerank this product in the BU RAG index.
+        Catalogue abbreviations are spelled out on an extra line, because the
+        search models don't know that "Ind." means indicator (measured:
+        "Switches with Indicator" scored 0.03 against "... with Ind." and
+        0.99 once expanded).
+        """
+        expanded = expand_abbreviations(self.item_name)
+        also = f"Also described as: {expanded}\n" if expanded != self.item_name else ""
         return (
             f"Product: {self.item_name}\n"
+            f"{also}"
             f"Brand: {self.brand}\n"
             f"Range: {self.range_name}\n"
             f"Variant: {self.variant or 'N/A'}\n"
@@ -86,6 +95,23 @@ class LoadReport:
     loaded: bool                 # False when the DB was already up to date
     product_count: int
     duplicate_sap_codes: List[str]
+
+
+# ─── Abbreviations used in catalogue item names ───────────────────────────────
+
+_ABBREVIATIONS = [
+    (re.compile(r"\bind\b\.*", re.I), "Indicator"),
+    (re.compile(r"\breg\b\.*", re.I), "Regulator"),
+    (re.compile(r"\bSP\b"), "Single Pole"),
+    (re.compile(r"\bDP\b"), "Double Pole"),
+    (re.compile(r"\bMCB\b"), "MCB (Miniature Circuit Breaker)"),
+]
+
+
+def expand_abbreviations(name: str) -> str:
+    for pattern, replacement in _ABBREVIATIONS:
+        name = pattern.sub(replacement, name)
+    return re.sub(r"\s+", " ", name).strip()
 
 
 # ─── Parsing ──────────────────────────────────────────────────────────────────
