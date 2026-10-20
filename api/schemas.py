@@ -82,6 +82,7 @@ class ProjectSummaryOut(BaseModel):
     proposal_available: bool = False
     created_at: datetime
     updated_at: datetime
+    completed_at: Optional[datetime] = None
 
 
 class ProjectOut(ProjectSummaryOut):

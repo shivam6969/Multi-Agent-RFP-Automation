@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db import Project, Rfp, User
+from db import Project, Rfp, User, utcnow
 from llm_json import LLMOutputError
 from pricing_agent import reprice_with_margin
 from quote_export import export_quote_csv
@@ -96,6 +96,7 @@ def _summary(project: Project, rfp: Rfp) -> Dict[str, Any]:
         "proposal_available": bool(project.proposal_path and Path(project.proposal_path).is_file()),
         "created_at": project.created_at,
         "updated_at": project.updated_at,
+        "completed_at": project.completed_at,
     }
 
 
@@ -368,7 +369,9 @@ def set_outcome(
     _: User = Depends(current_user),
 ) -> Dict[str, Any]:
     project = _get_project(db, project_id)
-    project.outcome = body.outcome
+    if body.outcome != project.outcome:
+        project.outcome = body.outcome
+        project.outcome_at = utcnow() if body.outcome else None
     db.commit()
     db.refresh(project)
     return _summary(project, db.get(Rfp, project.rfp_id))

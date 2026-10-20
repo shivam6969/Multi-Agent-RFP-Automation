@@ -337,6 +337,15 @@ class ProjectFlowTests(ApiTestCase):
         listed = self.client.get("/api/projects").json()
         self.assertEqual([(p["id"], p["stage"], p["outcome"]) for p in listed], [(pid, "done", "won")])
         self.assertEqual(listed[0]["grand_total"], project["pricing_summary"]["grand_total"])
+        self.assertIsNotNone(listed[0]["completed_at"])
+
+        # Dashboard counts it as generated and won this month
+        dash = self.client.get("/api/dashboard").json()
+        self.assertEqual(dash["kpis"]["proposals_generated"]["value"], 1)
+        self.assertEqual(dash["kpis"]["proposals_generated"]["this_month"], 1)
+        self.assertEqual(dash["kpis"]["win_rate"]["value"], 100.0)
+        self.assertEqual(dash["activity"][-1], {"month": dash["today"][:7], "generated": 1, "won": 1})
+        self.assertEqual(dash["pending_total"], 0)
 
     def test_bad_review_is_rejected_and_nothing_moves(self) -> None:
         pid = self.start()["id"]

@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -137,6 +137,9 @@ class Project(Base):
     fulfillment_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     proposal_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     outcome: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)   # submitted | won | lost
+    # For the dashboard: when the proposal was finished / the outcome last set.
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -150,4 +153,26 @@ def get_engine(db_path: str = DB_PATH) -> Engine:
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
     return engine
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Tiny migration: add nullable columns introduced after a database was created.
+
+    create_all() makes missing tables but never alters existing ones.
+    """
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing or not column.nullable:
+                    continue
+                kind = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
+                if (table.name, column.name) == ("projects", "completed_at"):
+                    # Best guess for proposals finished before the column existed.
+                    conn.execute(text("UPDATE projects SET completed_at = updated_at WHERE stage = 'done'"))

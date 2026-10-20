@@ -15,7 +15,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from db import AuthSession, Project, User
+from db import AuthSession, Project, User, utcnow
 from workflow import ProjectWorkflow
 
 from .security import token_hash
@@ -120,4 +120,6 @@ def sync_project(ctx: AppContext, project_id: str, status_: Optional[Dict[str, A
         project.grand_total = (state.get("pricing_summary") or {}).get("grand_total", project.grand_total)
         project.fulfillment_score = state.get("fulfillment_score", project.fulfillment_score)
         project.proposal_path = state.get("report_pdf_path", project.proposal_path)
+        if project.stage == "done" and project.completed_at is None:
+            project.completed_at = utcnow()
         db.commit()

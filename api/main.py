@@ -28,7 +28,8 @@ from workflow import ProjectWorkflow
 
 from company_profile import get_profile
 
-from . import routes_auth, routes_catalogue, routes_discovery, routes_projects, routes_rfps, routes_settings
+from . import (routes_auth, routes_catalogue, routes_dashboard, routes_discovery, routes_projects, routes_rfps,
+               routes_settings)
 from .context import AppContext, sync_project
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ def create_app(
         }
 
     for module in (routes_auth, routes_rfps, routes_projects, routes_catalogue, routes_discovery,
-                   routes_settings):
+                   routes_settings, routes_dashboard):
         app.include_router(module.router)
     app.include_router(routes_projects.rules_router)
 
