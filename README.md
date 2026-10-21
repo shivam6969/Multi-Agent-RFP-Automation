@@ -38,7 +38,8 @@ once per start). Stop it with **Ctrl+C** in that window.
 
 Options: `python start.py --port 8001 --no-browser --skip-build`.
 Your data stays on this laptop in `var/` (database, uploads, proposals).
-A guided demo script is in [docs/DEMO.md](docs/DEMO.md).
+A guided demo script is in [docs/DEMO.md](docs/DEMO.md); the full explanation of the
+project (for the team, reports and slides) is in [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md).
 
 **What is demo data:** stock levels are synthetic (labelled "demo"), "Sample
 tenders" are generated with fictitious buyers and stamped as samples, and the
