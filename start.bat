@@ -2,7 +2,9 @@
 rem Start SYNAPSE on this laptop (double-click, or run "start.bat" in a terminal).
 rem First run creates the Python environment in venv\ and installs packages.
 setlocal
+title SYNAPSE (keep this window open; Ctrl+C stops it)
 cd /d "%~dp0"
+echo [start] SYNAPSE is starting in %CD% ...
 
 if not exist venv\Scripts\python.exe (
     echo [start] Creating the Python environment in venv\ ^(first run only^) ...

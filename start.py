@@ -58,12 +58,12 @@ def check_python() -> None:
     if sys.version_info < (3, 12):
         fail(f"Python 3.12 or newer is needed (this is {sys.version.split()[0]}).")
     install_requirements()
-    try:
-        import fastapi  # noqa: F401
-        import langgraph  # noqa: F401
-        import sentence_transformers  # noqa: F401
-    except ImportError as exc:
-        fail(f"A Python package is missing ({exc.name}). Run:  pip install -r requirements.txt\n"
+    # find_spec only looks the packages up; importing them would load PyTorch
+    # (30-60 s with nothing on screen, which looks like a frozen window).
+    from importlib.util import find_spec
+    missing = [name for name in ("fastapi", "langgraph", "sentence_transformers") if find_spec(name) is None]
+    if missing:
+        fail(f"A Python package is missing ({missing[0]}). Run:  pip install -r requirements.txt\n"
              "        (start.bat / start.sh do this for you inside the venv)")
 
 
@@ -138,13 +138,14 @@ def main() -> int:
     args = parser.parse_args()
 
     os.chdir(ROOT)
+    say("Starting SYNAPSE: checking the setup ...")
     check_python()
     check_env()
     if not args.skip_build:
         build_frontend()
 
     url = f"http://127.0.0.1:{args.port}"
-    say(f"Starting the server on {url} (loading the AI models takes ~15-30 s) ...")
+    say(f"Starting the server on {url} (loading the AI models takes up to a minute; the browser opens when ready) ...")
     server = subprocess.Popen([sys.executable, "-m", "api"], cwd=ROOT,
                               env={**os.environ, "SYNAPSE_PORT": str(args.port)})
     try:
