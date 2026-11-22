@@ -1,8 +1,8 @@
-import { Calendar, ChevronDown, FileUp, MapPin, Search, Sparkles, UploadCloud, X } from "lucide-react";
+import { Calendar, ChevronDown, FileUp, MapPin, Search, Sparkles, UploadCloud, Warehouse, X } from "lucide-react";
 import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useDiscoverySearch, useDiscoverySources, useUploadRfp } from "../api/hooks";
+import { fetchStockKeywords, useDiscoverySearch, useDiscoverySources, useUploadRfp } from "../api/hooks";
 import Stepper from "../components/Stepper";
 import { Badge, Button, cx, ErrorBox } from "../components/ui";
 
@@ -58,11 +58,27 @@ function FindRfps() {
   const [count, setCount] = useState(6);
   const [location, setLocation] = useState("");
   const [dateFrom, setDateFrom] = useState(iso(new Date(today.getTime() - 14 * 864e5)));
-  const [dateTo, setDateTo] = useState(iso(new Date(today.getTime() + 14 * 864e5)));
+  const [dateTo, setDateTo] = useState(iso(today));
   const [advanced, setAdvanced] = useState(false);
   const [category, setCategory] = useState("");
   const [minValue, setMinValue] = useState("");
   const [maxValue, setMaxValue] = useState("");
+  const [stockBusy, setStockBusy] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
+
+  async function loadStockKeywords() {
+    setStockBusy(true);
+    setStockError(null);
+    try {
+      const found = await fetchStockKeywords();
+      if (found.length) setKeywords(found.map((k) => k.keyword));
+      else setStockError("No product types found in your stock.");
+    } catch (e) {
+      setStockError((e as Error).message);
+    } finally {
+      setStockBusy(false);
+    }
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -111,12 +127,32 @@ function FindRfps() {
               Generates realistic sample tenders from your catalogue, with fictitious buyers. Every PDF is marked as a sample.
             </p>
           )}
+          {source === "gem" && (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Searches live bids on bidplus.gem.gov.in in a browser and downloads each bid document. It goes slowly on
+              purpose, so allow about 15 seconds per RFP. Only bids whose item category names the product are kept.
+            </p>
+          )}
         </div>
 
         <div>
-          <span className="label">Keywords</span>
+          <div className="flex items-end justify-between gap-3">
+            <span className="label">Keywords</span>
+            <button
+              type="button"
+              onClick={loadStockKeywords}
+              disabled={stockBusy}
+              className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline disabled:text-slate-400"
+            >
+              <Warehouse className="h-3.5 w-3.5" />
+              {stockBusy ? "Reading your stock…" : "Use keywords from my stock"}
+            </button>
+          </div>
           <KeywordInput value={keywords} onChange={setKeywords} />
-          <p className="mt-1 text-xs text-slate-400">Separate keywords with commas. Press Enter to add.</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Separate keywords with commas. Press Enter to add.
+            {stockError && <span className="ml-1 text-rose-600">{stockError}</span>}
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

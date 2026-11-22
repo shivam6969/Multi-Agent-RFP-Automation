@@ -16,6 +16,7 @@ import type {
   Project,
   ProjectSummary,
   Rfp,
+  StockOverview,
   User,
 } from "./types";
 
@@ -92,6 +93,13 @@ export function useDiscoverySources() {
     queryFn: () => api<DiscoverySource[]>("/api/discovery/sources"),
     staleTime: Infinity,
   });
+}
+
+export type StockKeyword = { keyword: string; products: number; units_on_hand: number; examples: string[] };
+
+/** Fetched on demand (the "Use keywords from my stock" button). */
+export function fetchStockKeywords() {
+  return api<StockKeyword[]>("/api/discovery/stock-keywords?limit=6");
 }
 
 export function useDiscoverySearch() {
@@ -258,6 +266,14 @@ export function useCatalogueSearch(q: string) {
     queryKey: ["catalogue", q],
     queryFn: () => api<CatalogueProduct[]>(`/api/catalogue/products?q=${encodeURIComponent(q)}&limit=15`),
     enabled: q.trim().length >= 2,
+    staleTime: 60_000,
+  });
+}
+
+export function useStock() {
+  return useQuery<StockOverview>({
+    queryKey: ["stock"],
+    queryFn: () => api<StockOverview>("/api/catalogue/stock"),
     staleTime: 60_000,
   });
 }

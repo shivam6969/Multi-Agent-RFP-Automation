@@ -259,6 +259,13 @@ export interface CatalogueProduct {
   stock_is_demo: boolean;
 }
 
+// GET /api/catalogue/stock (api/routes_catalogue.py)
+export interface StockOverview {
+  products: CatalogueProduct[];
+  low_stock_units: number;
+  is_demo: boolean;
+}
+
 export interface Health {
   status: string;
   llm_key_configured: boolean;

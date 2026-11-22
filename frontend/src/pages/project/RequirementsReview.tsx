@@ -1,9 +1,10 @@
 import { ArrowRight, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { useSubmitReview } from "../../api/hooks";
+import { usePricingRules, useSubmitReview } from "../../api/hooks";
 import type { Criticality, Project } from "../../api/types";
 import { Badge, Button, cx, ErrorBox, Notice, PageHeader } from "../../components/ui";
+import { formatNumber } from "../../lib/format";
 
 interface Row {
   key: number;
@@ -21,6 +22,7 @@ const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/g
 
 export default function RequirementsReview({ project }: { project: Project }) {
   const submit = useSubmitReview(project.id);
+  const { data: rules } = usePricingRules();
   const [rows, setRows] = useState<Row[]>(() =>
     project.requirements.map((r, i) => ({
       key: i,
@@ -35,6 +37,9 @@ export default function RequirementsReview({ project }: { project: Project }) {
 
   const update = (key: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  const withQty = rows.filter((r) => Number(r.quantity) > 0);
+  const totalQty = withQty.reduce((sum, r) => sum + Number(r.quantity), 0);
 
   const invalid = rows.some((r) => r.requirement.trim().length < 3 || (r.quantity && !(Number(r.quantity) > 0)));
 
@@ -134,6 +139,21 @@ export default function RequirementsReview({ project }: { project: Project }) {
           >
             Add requirement
           </Button>
+        </div>
+        <div className="grid grid-cols-[2.5rem_1fr_8.5rem_6.5rem_2rem] items-center gap-3 rounded-b-xl border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <span />
+          <div>
+            <div className="font-semibold text-slate-800">Total quantities</div>
+            <div className="text-xs text-slate-500">
+              {withQty.length} of {rows.length} requirements have a quantity
+              {rows.length > withQty.length && (
+                <> · product lines without one are priced at {rules?.default_qty ?? 100} units</>
+              )}
+            </div>
+          </div>
+          <span className="text-right text-xs uppercase tracking-wide text-slate-500">Units</span>
+          <span className="px-3 text-lg font-semibold tabular-nums text-slate-800">{formatNumber(totalQty)}</span>
+          <span />
         </div>
       </div>
 

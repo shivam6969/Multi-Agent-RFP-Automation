@@ -173,3 +173,9 @@ class ProductOut(BaseModel):
     monthly_available: Optional[int]
     lead_time_days: Optional[int]
     stock_is_demo: bool
+
+
+class StockOverviewOut(BaseModel):
+    products: List[ProductOut]
+    low_stock_units: int
+    is_demo: bool

@@ -13,6 +13,7 @@ import {
   PlusCircle,
   Settings as SettingsIcon,
   User as UserIcon,
+  Warehouse,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -30,6 +31,7 @@ const NAV = [
   { to: "/projects?stage=pricing_review", label: "Pricing", icon: IndianRupee },
   { to: "/projects?stage=done", label: "Generated Proposals", icon: FileCheck2 },
   { to: "/history", label: "Completed / History", icon: History },
+  { to: "/stock", label: "Stock", icon: Warehouse },
 ];
 
 export function Logo({ compact = false }: { compact?: boolean }) {
@@ -127,13 +129,18 @@ export default function Layout() {
 
   return (
     <div className="flex h-full">
-      <aside className={cx("flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all", collapsed ? "w-16" : "w-60")}>
+      <aside className={cx("relative flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all", collapsed ? "w-16" : "w-60")}>
         <div className="flex h-16 items-center justify-between px-4">
           <Logo compact={collapsed} />
-          <button onClick={() => setCollapsed((c) => !c)} className="rounded p-1 text-slate-400 hover:bg-slate-100" title="Collapse sidebar">
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </button>
         </div>
+        {/* Collapse / expand toggle — floats on the right edge of the sidebar */}
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="absolute -right-3 top-5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm hover:bg-slate-50 hover:text-slate-700"
+        >
+          {collapsed ? <PanelLeftOpen className="h-3 w-3" /> : <PanelLeftClose className="h-3 w-3" />}
+        </button>
         <nav className="flex-1 space-y-0.5 px-3 py-2">
           {NAV.map(({ to, label, icon: Icon, end }) => {
             // Links with ?stage=… are only active for that exact filter.

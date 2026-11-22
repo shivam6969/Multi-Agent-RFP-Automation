@@ -98,7 +98,7 @@ class AuthTests(ApiTestCase):
         short = self.client.post("/api/auth/register",
                                  json={"email": "a@b.co", "name": "A", "password": "short"})
         self.assertEqual(short.status_code, 422)
-        for path in ("/api/rfps", "/api/projects", "/api/catalogue/products"):
+        for path in ("/api/rfps", "/api/projects", "/api/catalogue/products", "/api/catalogue/stock"):
             self.assertEqual(self.client.get(path).status_code, 401, path)
 
     def test_health_never_reveals_keys(self) -> None:
@@ -194,6 +194,33 @@ class SettingsApiTests(ApiTestCase):
         self.assertEqual((saved["name"], saved["is_demo"]), ("Sharma Electricals", False))
         self.assertEqual(self.client.get("/api/settings/company").json()["name"], "Sharma Electricals")
         self.assertEqual(self.client.put("/api/settings/company", json={**body, "name": ""}).status_code, 422)
+
+
+class StockApiTests(ApiTestCase):
+    def test_stock_overview_lists_every_product_with_stock(self) -> None:
+        self.login()
+        body = self.client.get("/api/catalogue/stock").json()
+        self.assertEqual(set(body), {"products", "low_stock_units", "is_demo"})
+        self.assertGreater(body["low_stock_units"], 0)
+        self.assertTrue(body["is_demo"])
+        products = body["products"]
+        self.assertGreater(len(products), 100)
+        self.assertEqual(len({p["product_id"] for p in products}), len(products))
+        for p in products:
+            self.assertIsInstance(p["stock_on_hand"], int)
+            self.assertIsInstance(p["monthly_available"], int)
+            self.assertGreater(p["unit_price"], 0)
+        # The demo data includes some low-stock products, so the filter has something to show.
+        self.assertTrue(any(p["stock_on_hand"] < body["low_stock_units"] for p in products))
+
+    def test_stock_keywords_for_discovery(self) -> None:
+        self.assertEqual(self.client.get("/api/discovery/stock-keywords").status_code, 401)
+        self.login()
+        found = self.client.get("/api/discovery/stock-keywords", params={"limit": 4}).json()
+        self.assertEqual(len(found), 4)
+        self.assertEqual(set(found[0]), {"keyword", "products", "units_on_hand", "examples"})
+        units = [k["units_on_hand"] for k in found]
+        self.assertEqual(units, sorted(units, reverse=True))
 
 
 class TitleGuessTests(unittest.TestCase):

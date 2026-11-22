@@ -12,6 +12,7 @@ import ProjectPage from "./pages/ProjectPage";
 import Projects from "./pages/Projects";
 import RfpSelection from "./pages/RfpSelection";
 import Settings from "./pages/Settings";
+import Stock from "./pages/Stock";
 
 function RequireLogin({ children }: { children: ReactNode }) {
   const { data: user, isLoading } = useMe();
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:projectId" element={<ProjectPage />} />
         <Route path="history" element={<History />} />
+        <Route path="stock" element={<Stock />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

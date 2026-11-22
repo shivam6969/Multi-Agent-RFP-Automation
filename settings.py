@@ -131,6 +131,9 @@ DISCOVERY_GEM_ENABLED: bool = os.environ.get("DISCOVERY_GEM_ENABLED", "").lower(
 # laptop generate the same numbers; the UI must label them as demo data.
 DEMO_STOCK_SEED: int = 2026
 
+# The Stock page marks a product "low" when fewer units than this are on hand.
+STOCK_LOW_UNITS: int = 100
+
 
 # ─── Pricing defaults ─────────────────────────────────────────────────────────
 

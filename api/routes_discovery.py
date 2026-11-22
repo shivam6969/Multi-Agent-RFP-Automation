@@ -25,6 +25,16 @@ def sources(_: User = Depends(current_user)) -> List[Dict[str, Any]]:
     return list_sources()
 
 
+@router.get("/stock-keywords")
+def stock_keywords_route(limit: int = 6, _: User = Depends(current_user)) -> List[Dict[str, Any]]:
+    """Search keywords taken from the business's own stock, most-stocked first."""
+    from discovery.keywords import stock_keywords
+    return [
+        {"keyword": k.keyword, "products": k.products, "units_on_hand": k.units_on_hand, "examples": k.examples}
+        for k in stock_keywords(limit=max(1, min(limit, 10)))
+    ]
+
+
 @router.post("/search", response_model=List[RfpOut])
 def search(
     body: DiscoverySearchIn,
