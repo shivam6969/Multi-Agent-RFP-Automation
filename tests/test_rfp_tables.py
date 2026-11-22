@@ -75,6 +75,21 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(table(["Parameter", "Requirement"], [["Voltage", "240 V"]]).kind, "spec")
         self.assertEqual(table(["Lot", "Floors", "Delivery within"], [["1", "3-4", "10 days"]]).kind, "other")
 
+    def test_gem_consignee_table_is_not_an_item_list(self) -> None:
+        # Headers as PyMuPDF reads a real GeM bid (Hindi part garbled by the font)
+        t = table(["5.सं./S.N o.", "परे\x01षती/Pरपो;टdग अिधकार\x13 /Consignee Reporting/Officer", "पता/Address",
+                   "मा ा /Quantity", ";डलीवर\x13 के ;दन/Delivery Days"],
+                  [["1", "Lavdeep Kumar", "140124,Bhakra Beas Management Board, Irrigation Wing, NANGAL TOWNSHIP",
+                    "100", "15"]])
+        self.assertEqual(t.roles[1:], ["location", "location", "quantity", "delivery"])
+        self.assertEqual(t.kind, "consignee")
+
+    def test_consignee_column_inside_an_item_list_is_an_attribute(self) -> None:
+        t = table(["Item", "Qty", "Consignee"], [["16A switch", "40", "Stores, Nangal"]])
+        self.assertEqual(t.kind, "boq")
+        r = boq_requirements(t)[0]
+        self.assertEqual((r.requirement, r.quantity, r.attributes), ("16A switch", 40, {"Consignee": "Stores, Nangal"}))
+
     def test_item_table_without_any_quantity_is_not_boq(self) -> None:
         self.assertEqual(table(["S.No", "Item", "Qty"], [["1", "Switch", "As required"]]).kind, "other")
 

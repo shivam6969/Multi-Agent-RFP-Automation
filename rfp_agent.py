@@ -106,6 +106,10 @@ together with its column headers. A line starting "[Table T…] … Item list"
 stands for the detailed product list, which was read separately: do NOT
 extract its items, and treat it as the detailed list for the rule above (so a
 scope summary of the same products is not extracted either).
+A consignee table (consignee / address / quantity / delivery days) says where
+goods are delivered: extract at most one delivery requirement per row (e.g.
+"Deliver to <consignee>, <place> within 15 days") with "quantity": null. An
+address, buyer name or contact person is never a product.
 
 Each object must have:
   - "requirement"  : short plain-English statement of the requirement
@@ -198,6 +202,21 @@ _COMPLIANCE_WORDS = {"only", "must", "shall", "isi", "bis", "marked", "certified
                      "warranty", "within", "deliver", "delivery", "sample", "test", "approved", "genuine"}
 
 
+_PIN_OR_CONTACT = re.compile(
+    r"(^\s*\d{6}\s*[,\-])|(\b\d{6}\s*$)|[\w.+-]+@[\w-]+\.[\w.]+|(\+91[\s-]?)?\b[6-9]\d{9}\b", re.I)
+_OBLIGATION = re.compile(
+    r"\b(deliver|delivery|supply|submit|provide|install|must|shall|should|required|within|days?)\b", re.I)
+
+
+def _is_bare_address(text: str) -> bool:
+    """
+    A consignee address or contact line ("140124, Bhakra Beas Management
+    Board, Irrigation Wing, NANGAL TOWNSHIP", an e-mail or phone number) with
+    no obligation in it. "Deliver to …, Nangal within 15 days" is kept.
+    """
+    return bool(_PIN_OR_CONTACT.search(text)) and not _OBLIGATION.search(text)
+
+
 def _is_scope_summary(text: str, quantity: Optional[int], table_words: set) -> bool:
     """
     A general scope line ("Supply modular switches, sockets and plates",
@@ -250,7 +269,7 @@ def _needs_column_mapping(table: TableData) -> bool:
     if table.kind != "other" or len(table.header) < 3 or len(table.rows) < 2:
         return False
     for c, role in enumerate(table.roles):
-        if role in ("sno", "price", "quantity", "quantity_part"):
+        if role in ("sno", "price", "quantity", "quantity_part", "location", "delivery"):
             continue
         values = [clean_cell(r[c]) for r in table.rows if c < len(r) and clean_cell(r[c])]
         if values and sum(parse_quantity(v)[0] is not None for v in values) / len(values) >= 0.6:
@@ -414,6 +433,9 @@ def _extract_requirements(
             text = req.requirement.strip()
             if table_token_sets and _adds_nothing(text, table_token_sets):
                 continue   # the LLM repeated an item the table already gave
+            if _is_bare_address(text):
+                logger.info("[RfpAgent] Dropped an address / contact line: %r", text)
+                continue
             if table_token_sets and _is_scope_summary(text, req.quantity, table_words):
                 logger.info("[RfpAgent] Dropped scope summary (the item table lists the products): %r", text)
                 continue

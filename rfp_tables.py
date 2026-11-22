@@ -8,7 +8,8 @@ rfp_parser.py finds the tables; this module works out what they mean:
   column_roles()          what each column holds (description, quantity, unit,
                           per-location quantity, make, rate, …) from its header
                           and, where the header says nothing, from its values
-  classify_table()        boq (item list with quantities) | spec | kv | other
+  classify_table()        boq (item list with quantities) | consignee (where goods
+                          go: address + quantity, no item column) | spec | kv | other
   boq_requirements()      item-list rows -> requirement dicts, by rules (no LLM):
                           quantity read from the cell, unit, category rows used
                           as context, total rows skipped, page/row source kept
@@ -21,7 +22,8 @@ Roles
 sno, description, quantity (the order quantity; a "Total" column when the
 quantity is split by location), quantity_part (one location's quantity),
 unit, category, specification, make, remarks, price (rate / amount columns the
-vendor fills in; never read as quantities), other.
+vendor fills in; never read as quantities), location (consignee, address,
+contact: never the description), delivery (delivery days / period), other.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ class TableData:
     caption: str = ""                         # short line just above the table
     detection: str = "lines"                  # "lines" (ruled) | "text" (no gridlines)
     roles: List[str] = field(default_factory=list)
-    kind: str = "other"                       # boq | spec | kv | other
+    kind: str = "other"                       # boq | consignee | spec | kv | other
 
     @property
     def page_label(self) -> str:
@@ -130,6 +132,13 @@ _ROLE_RULES: List[Tuple[str, re.Pattern]] = [
         r"\b(rate|price|amount|cost|value|basic|gst|tax|inr|rs)\b")),
     ("unit", re.compile(
         r"^(unit|units|uom|u o m|unit of (measure|measurement)|a u|au|acc unit|accounting unit|unit type)$")),
+    # Where and to whom goods go (GeM "Consignee / Reporting Officer | Address |
+    # Quantity | Delivery Days"): never the item description.
+    ("location", re.compile(
+        r"\b(consignee|consignees|address|reporting officer|officer|contact|e ?mail|phone|mobile|"
+        r"pin ?code|place of delivery|delivery (address|location|point)|ship to|deliver to)\b")),
+    ("delivery", re.compile(
+        r"\b(delivery (days|day|period|schedule|time|date|within)|lead time|completion (period|time))\b")),
     ("category", re.compile(r"^(category|group|type|section|head|sub ?head|item category|product category)$")),
     ("make", re.compile(r"\b(make|brand|manufacturer|oem)\b")),
     ("remarks", re.compile(r"\b(remark|remarks|note|notes|comment|comments)\b")),
@@ -222,8 +231,10 @@ def column_roles(header: Sequence[str], rows: Sequence[Sequence[str]]) -> List[s
 
 
 def classify_table(header: Sequence[str], rows: Sequence[Sequence[str]], roles: Sequence[str]) -> str:
-    """boq | spec | kv | other."""
+    """boq | consignee | spec | kv | other."""
     has_qty = "quantity" in roles or "quantity_part" in roles
+    if "location" in roles and "description" not in roles:
+        return "consignee"       # where the goods go, with per-consignee quantities
     if "description" in roles and has_qty:
         qty_cols = [c for c, r in enumerate(roles) if r in ("quantity", "quantity_part")]
         filled = [r for r in rows if any(c < len(r) and _is_quantity_cell(r[c]) for c in qty_cols)]
@@ -407,7 +418,7 @@ def boq_requirements(table: TableData) -> List[TableRequirement]:
         attributes = {
             (headers[i] or f"Column {i + 1}"): clean_cell(row[i])
             for i, r in enumerate(roles)
-            if r in ("make", "remarks", "other") and i < len(row) and clean_cell(row[i])
+            if r in ("make", "remarks", "other", "location", "delivery") and i < len(row) and clean_cell(row[i])
         }
         sno = _first(row, roles, "sno")
         out.append(TableRequirement(

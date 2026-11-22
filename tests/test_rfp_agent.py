@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 import rfp_rag
-from rfp_agent import _is_scope_summary, _map_columns, _needs_column_mapping, _windows, rfp_agent_node
+from rfp_agent import _is_bare_address, _is_scope_summary, _map_columns, _needs_column_mapping, _windows, rfp_agent_node
 from rfp_tables import TableData, analyse_table, boq_requirements
 from tests.fakes import FakeEmbedder, FakeReranker
 from tests.sample_rfps import build_all
@@ -184,6 +184,22 @@ class ScopeSummaryTests(unittest.TestCase):
                           ("Supply garden hoses", None),            # nothing to do with the table
                           ("Provide GST registration certificate", None)):
             self.assertFalse(_is_scope_summary(text, qty, self.TABLE_WORDS), text)
+
+
+class AddressLineTests(unittest.TestCase):
+    def test_addresses_and_contacts_are_not_requirements(self) -> None:
+        for text in ("140124,Bhakra Beas Management Board, Irrigation Wing, NANGAL TOWNSHIP",
+                     "Office of Dy CMM General Stores, Lucknow 226005",
+                     "Lavdeep Kumar, lavdeep.kumar@bbmb.example",
+                     "Contact: 9876543210"):
+            self.assertTrue(_is_bare_address(text), text)
+
+    def test_obligations_and_specs_are_kept(self) -> None:
+        for text in ("Deliver to Bhakra Beas Management Board, Nangal 140124 within 15 days",
+                     "Switch mechanism with minimum 1,00,000 operations",
+                     "Rated Wattage (in Watts) should be 40.0",
+                     "Supply of LED Batten Light (100 pieces)"):
+            self.assertFalse(_is_bare_address(text), text)
 
 
 class WindowTests(unittest.TestCase):
