@@ -38,7 +38,7 @@ import math
 import re
 import threading
 from collections import Counter, OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -46,19 +46,20 @@ import faiss
 import numpy as np
 
 from settings import (
-    LLM_MODEL,
     RFP_CANDIDATE_K,
     RFP_EMBED_MODEL,
     RFP_MAX_CHUNK_LENGTH,
     RFP_PDF_PATH,
     RFP_QUERY_INSTRUCTION,
+    RFP_RERANK_CANDIDATES,
+    RFP_RERANK_MAX_CHARS,
     RFP_RERANK_MODEL,
     RFP_TOOL_CACHE_SIZE,
     RFP_TOP_K,
     RFP_USE_RERANKER,
 )
 from embedding_cache import encode_cached
-from llm import chat_completion
+from llm import chat_completion, current_model
 from models import get_embedder, get_reranker
 from rfp_parser import Block, ParsedDocument, parse_pdf
 from rfp_tables import TableData, row_categories, row_record, table_markdown, table_title
@@ -72,7 +73,7 @@ logger = logging.getLogger(__name__)
 class RfpRagConfig:
     pdf_path: str = RFP_PDF_PATH
     embed_model_name: str = RFP_EMBED_MODEL
-    llm_model_name: str = LLM_MODEL
+    llm_model_name: str = field(default_factory=current_model)   # LLM_MODEL, read at use
     max_chunk_length: int = RFP_MAX_CHUNK_LENGTH
     rerank_model_name: str = RFP_RERANK_MODEL
     use_reranker: bool = RFP_USE_RERANKER
@@ -370,8 +371,10 @@ class RfpRagTool:
 
         fused = reciprocal_rank_fusion([dense_ranking, keyword_ranking])[:k]
         if self.config.use_reranker and len(fused) > top_k:
-            scores = self._get_reranker().predict([(query, self.chunks[i]) for i in fused])
-            fused = [i for i, _ in sorted(zip(fused, scores), key=lambda x: x[1], reverse=True)]
+            head, tail = fused[:RFP_RERANK_CANDIDATES], fused[RFP_RERANK_CANDIDATES:]
+            scores = self._get_reranker().predict(
+                [(query, self.chunks[i][:RFP_RERANK_MAX_CHARS]) for i in head])
+            fused = [i for i, _ in sorted(zip(head, scores), key=lambda x: x[1], reverse=True)] + tail
         return [self.chunk_records[i] for i in fused[:top_k]]
 
     def retrieve(self, query: str, top_k: int = RFP_TOP_K) -> List[str]:

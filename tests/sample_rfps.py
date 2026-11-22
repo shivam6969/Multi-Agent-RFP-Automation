@@ -63,6 +63,11 @@ class SampleTruth:
     items: List[TruthItem]
     tables: Dict[str, int] = field(default_factory=dict)   # expected table kinds -> count
     facts: Dict[str, str] = field(default_factory=dict)    # question -> text that must be in the answer context
+    # Non-item requirements the extraction must find: each entry is a set of
+    # words that must all appear in one extracted requirement (evaluation/).
+    terms: List[str] = field(default_factory=list)
+    # Text the RFP summary (rfp_answer) must contain.
+    summary_facts: List[str] = field(default_factory=list)
 
 
 # ─── Shared styling ───────────────────────────────────────────────────────────
@@ -255,6 +260,10 @@ def build_hotel(path: Path) -> SampleTruth:
             "What is the warranty period?": "2 years",
             "How many USB chargers are required?": "160",
         },
+        terms=["IS 3854", "240 V", "silver alloy", "polycarbonate", "warranty 2 year", "authorised distributor",
+               "turnover 1.5 crore", "GST registration", "similar supply orders", "21 days",
+               "liquidated damages", "payment 30 days"],
+        summary_facts=["Sunrise Grand Hotels", "SGH/ELEC/2026/117", "28-11-2026", "25,000"],
     )
 
 
@@ -348,6 +357,9 @@ def build_school(path: Path) -> SampleTruth:
     return SampleTruth(
         name="school", title=title, buyer=buyer, items=truth, tables={"boq": 1},
         facts={"How many 1 way switches are needed in total?": "1,060"},
+        terms=["ISI marked", "one brand", "earnest money 15,000", "15 days", "delivery challans",
+               "warranty 12 months", "25-11-2026"],
+        summary_facts=["Greenfield Public School Society", "25-11-2026", "15,000"],
     )
 
 
@@ -430,6 +442,8 @@ def build_office(path: Path) -> SampleTruth:
     return SampleTruth(
         name="office", title=title, buyer=buyer, items=truth, tables={"boq": 1, "other": 1},
         facts={"When is lot 2 delivered?": "25 days"},
+        terms=["authorised dealer", "60 days", "delivery to site", "10 days", "25 days", "30-11-2026"],
+        summary_facts=["Northwind Office Parks", "30-11-2026"],
     )
 
 

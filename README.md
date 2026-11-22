@@ -253,6 +253,32 @@ GEMINI_API_KEY=your-gemini-key
 
 `.env` is gitignored. Environment variables with the same names also work and take precedence.
 
+### Backup API (optional)
+
+If a call fails (outage, rate limit, bad key, timeout), the agents retry and then
+switch to a backup automatically. Add any OpenAI-compatible API as the backup:
+
+```
+LLM_FALLBACK_API_KEY=...
+LLM_FALLBACK_MODEL=...                              # empty = same model
+LLM_FALLBACK_BASE_URL=https://openrouter.ai/api/v1  # or Groq / OpenAI / Together …
+GEMINI_FALLBACK_API_KEY=...                         # proposal text; then falls back to OpenRouter
+```
+
+A fallback is logged as a warning; see `.env.example` for all options.
+
+### Evaluating the agents
+
+```bash
+python -m evaluation.run_eval --offline-only        # parsing + retrieval, no API calls
+python -m evaluation.run_eval                       # full workflow on the 3 sample RFPs
+python -m evaluation.run_eval --llm-models meta-llama/llama-4-scout,openai/gpt-4o-mini
+```
+
+It scores each agent against the samples' ground truth (items, quantities,
+catalogue products, terms) and reports time, LLM calls, tokens and cost per
+stage and per model in `var/eval/<timestamp>/report.md`.
+
 ### Other settings
 
 Paths, models and pricing rules live in **`settings.py`**. Paths are resolved from the project folder, so commands work from any directory.

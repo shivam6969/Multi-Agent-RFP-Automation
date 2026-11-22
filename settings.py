@@ -38,6 +38,34 @@ LLM_MODEL: str = os.environ.get("LLM_MODEL", "meta-llama/llama-4-scout")
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 
+# ─── LLM fallback (all optional; see llm.py) ──────────────────────────────────
+# When a call fails (outage, rate limit, bad key, timeout) llm.py moves down a
+# chain: primary -> backup. The backup can be any OpenAI-compatible API
+# (OpenRouter with another key, Groq, Together, OpenAI …).
+LLM_FALLBACK_API_KEY: str = os.environ.get("LLM_FALLBACK_API_KEY", "")
+LLM_FALLBACK_MODEL: str = os.environ.get("LLM_FALLBACK_MODEL", "")          # "" = same model as primary
+LLM_FALLBACK_BASE_URL: str = os.environ.get("LLM_FALLBACK_BASE_URL", "https://openrouter.ai/api/v1")
+# Proposal text: Gemini -> backup Gemini key/model -> the OpenRouter chain above.
+GEMINI_FALLBACK_API_KEY: str = os.environ.get("GEMINI_FALLBACK_API_KEY", "")
+GEMINI_FALLBACK_MODEL: str = os.environ.get("GEMINI_FALLBACK_MODEL", "")    # "" = same model as primary
+GEMINI_FALLBACK_TO_OPENROUTER: bool = os.environ.get("GEMINI_FALLBACK_TO_OPENROUTER", "true").lower() not in ("0", "false", "no")
+# Per request; a transient error (timeout, 429, 5xx, empty reply) is retried
+# this many times on the same endpoint before moving to the next one.
+LLM_TIMEOUT_SECONDS: float = float(os.environ.get("LLM_TIMEOUT_SECONDS", "90"))
+LLM_RETRIES_PER_ENDPOINT: int = int(os.environ.get("LLM_RETRIES_PER_ENDPOINT", "1"))
+
+# USD per 1M tokens (input, output), for cost estimates when the provider does
+# not report the cost itself (OpenRouter does; Gemini does not). Checked
+# Nov 2026 from public price pages; override with MODEL_PRICES_JSON in .env,
+# e.g. {"my/model": [0.2, 0.6]}.
+MODEL_PRICES_USD_PER_MTOK: dict = {
+    "meta-llama/llama-4-scout": (0.10, 0.30),
+    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+}
+if os.environ.get("MODEL_PRICES_JSON"):
+    import json as _json
+    MODEL_PRICES_USD_PER_MTOK.update({k: tuple(v) for k, v in _json.loads(os.environ["MODEL_PRICES_JSON"]).items()})
+
 
 # ─── Embedding / Reranker models ───────────────────────────────────────────────
 
@@ -75,6 +103,12 @@ RFP_TOP_K: int = 6
 # Hybrid RFP search: this many candidates from each of keyword (BM25) and
 # embedding search are fused (reciprocal rank fusion), then reranked.
 RFP_CANDIDATE_K: int = 20
+# The cross-encoder dominates query time on CPU, so only the best fused
+# candidates are reranked, each cut to its first characters. Measured on the
+# sample RFPs (evaluation/): 20 x full text = 10.5 s/query; 10 x 500 chars =
+# 1.6 s/query, with the same hits (46/46 item rows, 5/5 facts).
+RFP_RERANK_CANDIDATES: int = 10
+RFP_RERANK_MAX_CHARS: int = 500
 RFP_USE_RERANKER: bool = os.environ.get("RFP_USE_RERANKER", "true").lower() not in ("0", "false", "no")
 
 # Requirement extraction reads the whole RFP in windows of about this many

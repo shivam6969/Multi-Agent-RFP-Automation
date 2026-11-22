@@ -304,10 +304,16 @@ def matching_agent_node(state: AgentState) -> AgentState:
     product_reqs = [r for r, t in zip(requirements, types) if t == "product_sku"]
 
     # ── Step 2: atomise product requirements ──────────────────────────────────
-    logger.info(f"[MatchingAgent] Splitting {len(product_reqs)} product requirements (1 LLM call) …")
-    split = atomise([r["requirement"] for r in product_reqs], api_key)
+    # A row of the RFP's item table is already one line item with its own
+    # quantity; splitting it ("… for workstations and meeting rooms") lost the
+    # quantity (evaluation: 2-7 lines priced at the default per run).
+    to_split = [r for r in product_reqs if r.get("origin") != "table"]
+    logger.info(f"[MatchingAgent] Splitting {len(to_split)} product requirements (1 LLM call; "
+                f"{len(product_reqs) - len(to_split)} table rows kept whole) …")
+    split_by_id = {r["id"]: parts for r, parts in zip(to_split, atomise([r["requirement"] for r in to_split], api_key))}
     product_items: Dict[str, List[Dict[str, Any]]] = {}
-    for req, parts in zip(product_reqs, split):
+    for req in product_reqs:
+        parts = split_by_id.get(req["id"], [req["requirement"]])
         if len(parts) == 1:
             product_items[req["id"]] = [{**req, "requirement": parts[0]}]
             continue

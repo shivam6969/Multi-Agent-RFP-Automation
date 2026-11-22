@@ -16,6 +16,8 @@ import tempfile
 
 os.environ["OPENROUTER_API_KEY"] = ""
 os.environ["GEMINI_API_KEY"] = ""
+os.environ["LLM_FALLBACK_API_KEY"] = ""
+os.environ["GEMINI_FALLBACK_API_KEY"] = ""
 _TMP = tempfile.mkdtemp(prefix="synapse-test-")
 os.environ["SYNAPSE_DB_PATH"] = os.path.join(_TMP, "test.db")
 os.environ["SYNAPSE_CACHE_DIR"] = os.path.join(_TMP, "cache")

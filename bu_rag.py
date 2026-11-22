@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from dataclasses import astuple, dataclass
+from dataclasses import astuple, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import faiss
@@ -39,11 +39,10 @@ from settings import (
     BU_TOP_K_JSON,
     BU_TOP_K_LARGE,
     BU_TOP_K_SMALL,
-    LLM_MODEL,
 )
 from catalogue import ProductRecord, get_catalogue
 from embedding_cache import encode_cached
-from llm import chat_completion
+from llm import chat_completion, current_model
 from models import get_embedder, get_reranker
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ class BuRagConfig:
     json_path: str = BU_JSON_PATH
     embed_model_name: str = BU_EMBED_MODEL
     rerank_model_name: str = BU_RERANK_MODEL
-    llm_model_name: str = LLM_MODEL
+    llm_model_name: str = field(default_factory=current_model)   # LLM_MODEL, read at use
 
 
 # ─── Tool ─────────────────────────────────────────────────────────────────────

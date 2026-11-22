@@ -60,15 +60,33 @@ class CarriedFieldTests(unittest.TestCase):
             if "classify" in system:
                 return json.dumps([{"index": 0, "type": "product_sku"}])
             if "split" in system:
+                raise AssertionError("a table row is one line item: it must not be split")
+            return fake_llm(system=system, user=user)
+
+        with patch("product_matcher.get_bu_rag_tool", return_value=SEARCH), \
+             patch("llm_json.chat_completion", side_effect=llm):
+            out = matching_agent_node({"rfp_requirements": reqs})
+        (item,) = out["matched_items"]                 # kept whole, with its quantity
+        self.assertEqual((item["id"], item["qty"], item["unit"]), ("R1", 40, "Nos"))
+        self.assertEqual(item["source"]["row"], "7")
+        self.assertEqual(item["origin"], "table")
+
+    def test_text_requirements_are_still_split(self) -> None:
+        reqs = [{"id": "R1", "requirement": "Supply 16A and 25A switches", "criticality": "high", "weight": 3,
+                 "origin": "text", "source": {"pages": [1, 2]}}]
+
+        def llm(*, system, user, **_):
+            if "classify" in system:
+                return json.dumps([{"index": 0, "type": "product_sku"}])
+            if "split" in system:
                 return json.dumps([{"index": 0, "items": ["16A switch", "25A switch"]}])
             return fake_llm(system=system, user=user)
 
         with patch("product_matcher.get_bu_rag_tool", return_value=SEARCH), \
              patch("llm_json.chat_completion", side_effect=llm):
             out = matching_agent_node({"rfp_requirements": reqs})
-        for item in out["matched_items"]:
-            self.assertEqual(item["source"]["row"], "7")
-            self.assertEqual(item["origin"], "table")
+        self.assertEqual([m["id"] for m in out["matched_items"]], ["R1.1", "R1.2"])
+        self.assertTrue(all(m["source"] == {"pages": [1, 2]} for m in out["matched_items"]))
 
 
 class MatchingAgentTests(unittest.TestCase):

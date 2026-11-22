@@ -10,7 +10,7 @@ Turn the CLI prototype into a working product:
 - Pricing stays deterministic.
 
 ## Stack
-Python, LangGraph (StateGraph), OpenRouter (`meta-llama/llama-4-scout`) via the `openai` client, Gemini (`google-genai`) for proposal text, sentence-transformers (BGE) + FAISS, cross-encoder rerank, PyMuPDF, reportlab. Discovery: Selenium + pdfplumber.
+Python, LangGraph (StateGraph), OpenRouter (`meta-llama/llama-4-scout`) via the `openai` client, Gemini (`google-genai`) for proposal text, sentence-transformers (BGE) + FAISS, cross-encoder rerank, PyMuPDF (the only PDF library in use: RFP parsing, upload checks, GeM bids), reportlab. Discovery: Selenium (optional, off by default). pdfplumber appears only in `legacy/gem_scraper/`, which nothing imports.
 
 ## Pipeline (master_agent.py)
 Router (temp 0) -> one of six routes: rfp | bu | match | price | full | report.
@@ -38,7 +38,11 @@ All nodes read/write one `AgentState` TypedDict (state.py). Nodes mutate and ret
 - `proposal_pdf.py` deterministic reportlab render: header, facts table, sections, pricing table + totals copied from `pricing_summary` (no arithmetic), not-quoted list, signature. Escapes text (XML). Helvetica lacks ₹ → "Rs." + Indian grouping (`inr()`).
 - `company_profile.py` vendor details ("Prepared by"), stored in `app_settings`; Settings page; projects snapshot it in `proposal_meta.profile` at draft time
 - Workflow tail: price → ⏸ pricing_review → draft → ⏸ proposal_review → render. `ProjectWorkflow.save_proposal_draft()` saves edits while paused: `update_state(as_node="draft")` + `invoke(None)` to re-pause (a plain `update_state` drops the pending interrupt). Never resume with an empty dict (LangGraph treats it as no resume); decisions are always `model_dump()`ed.
-- `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`; `llm.py` OpenRouter wrapper
+- `quote_export.py` CSV export; `settings.py` all config incl. `PricingRules`
+- `llm.py` provider wrapper with a fallback chain: chat = OpenRouter primary → `LLM_FALLBACK_API_KEY`/`LLM_FALLBACK_MODEL` at `LLM_FALLBACK_BASE_URL` (any OpenAI-compatible API); Gemini = primary → `GEMINI_FALLBACK_*` → the chat chain (`GEMINI_FALLBACK_TO_OPENROUTER`). Transient errors (timeout, 429, 5xx, empty reply) retry `LLM_RETRIES_PER_ENDPOINT` times, others move on; all failing → `LLMUnavailableError`. SDK retries off (`max_retries=0`), `LLM_TIMEOUT_SECONDS`. Model names are read at call time (`current_model()`), so `LLM_MODEL` in env overrides per run. `tests/__init__.py` blanks the fallback keys too.
+- `llm_usage.py` records every attempt (provider, model, primary/fallback, tokens, latency, cost: OpenRouter's `usage.cost`, else `MODEL_PRICES_USD_PER_MTOK`); `UsageTracker` + `summarize()`.
+- `evaluation/` `metrics.py` pure scorers (extraction item/qty/term recall + precision proxy, summary facts, matching top-1/top-3/by-confidence/auto-accept errors/gaps, pricing independent recompute, proposal amount mentions + unconfirmed compliance claims); `run_eval.py` runs offline checks + the real workflow per sample and per `--llm-models`, writes `var/eval/<ts>/results.json` + `report.md`. Truth: `tests/sample_rfps.py` (`items[].catalogue`, `terms`, `summary_facts`).
+- RFP rerank only the top `RFP_RERANK_CANDIDATES` (10) cut to `RFP_RERANK_MAX_CHARS` (500): 10.5 s → 1.6 s per query on CPU, same hits.
 - `db.py` SQLAlchemy models + engine (SQLite at `var/synapse.db`, override `SYNAPSE_DB_PATH`); `catalogue.py` loads the catalogue JSON into it (auto-reload on file change), parses prices, generates seeded demo stock, lookups by id/SAP. SAP codes are NOT unique (3 duplicates); use `product_id`.
 - `models.py` shared, thread-safe embedder/reranker instances (load once); `embedding_cache.py` disk cache for document embeddings (override dir with `SYNAPSE_CACHE_DIR`)
 - `llm_json.py` `chat_json()` = LLM call + JSON extraction + pydantic validation + one retry; raises `LLMOutputError`. In tests, patch `llm_json.chat_completion`. It appends `JSON_ONLY` to every system prompt: without it Llama 4 Scout "thinks out loud" in Markdown on ambiguous picks and runs out of tokens (28/40 picks failed in the first live run; 0 after). OpenRouter JSON mode (`response_format`) returns 404 for this model; don't use it.
@@ -84,7 +88,7 @@ Legacy notes (original code in `legacy/gem_scraper/`, reference only):
 - `scraper/rfp_agent.py` (904 lines): Streamlit app with keyword list, headless Chrome scraping of `https://bidplus.gem.gov.in/all-bids`, pdfplumber text extraction, regex analysis, stock comparison, session JSON, Move Forward / Hold cards. **Its filename clashes with the repo's `rfp_agent.py`**; rename on import.
 - `scraper/rfp_extractor.py`, `app.py` (Flask), `streamlit_app.py`: earlier variants; consolidate.
 - `sessions/*.json` hold real scraped tenders (`bid_title`, `pdf_url`, `filename`, `analysis`); useful seed data. `extracted_data/rfps_catalog.json` is dummy sample data.
-- Uses pdfplumber; the main repo uses PyMuPDF. Pick one.
+- Uses pdfplumber; the main repo uses PyMuPDF. Decided: PyMuPDF only (`discovery/gem.py` reads bids with it); don't add pdfplumber back.
 - Do not commit its `.venv`, `__pycache__`.
 
 ## Rules
@@ -102,4 +106,6 @@ copy .env.example .env                           # then add your keys
 python master_agent.py "What are the eligibility criteria in the RFP?"
 python -m unittest discover -s tests -t . -v     # offline, no API calls
 python workflow.py start --rfp data/samples/sample_rfp.pdf --id demo   # live review flow (needs .env)
+python -m evaluation.run_eval --offline-only     # accuracy/time without API calls
+python -m evaluation.run_eval --llm-models meta-llama/llama-4-scout,openai/gpt-4o-mini   # live, compares models
 ```
