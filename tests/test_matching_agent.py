@@ -50,6 +50,27 @@ def fake_llm(*, system: str, user: str, **_):
     raise AssertionError(f"Unexpected LLM call: {system}")
 
 
+class CarriedFieldTests(unittest.TestCase):
+    def test_source_and_unit_reach_matched_items(self) -> None:
+        reqs = [{"id": "R1", "requirement": "Supply 16A and 25A switches", "criticality": "high", "weight": 3,
+                 "quantity": 40, "unit": "Nos", "origin": "table",
+                 "source": {"page": 2, "table": "T1", "row": "7"}}]
+
+        def llm(*, system, user, **_):
+            if "classify" in system:
+                return json.dumps([{"index": 0, "type": "product_sku"}])
+            if "split" in system:
+                return json.dumps([{"index": 0, "items": ["16A switch", "25A switch"]}])
+            return fake_llm(system=system, user=user)
+
+        with patch("product_matcher.get_bu_rag_tool", return_value=SEARCH), \
+             patch("llm_json.chat_completion", side_effect=llm):
+            out = matching_agent_node({"rfp_requirements": reqs})
+        for item in out["matched_items"]:
+            self.assertEqual(item["source"]["row"], "7")
+            self.assertEqual(item["origin"], "table")
+
+
 class MatchingAgentTests(unittest.TestCase):
     def run_node(self):
         with patch("product_matcher.get_bu_rag_tool", return_value=SEARCH), \

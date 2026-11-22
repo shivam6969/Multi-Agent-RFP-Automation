@@ -29,6 +29,19 @@ export function formatDate(iso: string | null | undefined): string {
 
 export const projectRef = (id: string) => `SYN-${id.slice(0, 6).toUpperCase()}`;
 
+// "p.2 · Table T1, row 5" / "pp.3–4": where a requirement sits in the RFP.
+export function sourceLabel(
+  source: { page?: number; table?: string; row?: string; pages?: [number, number] } | null | undefined,
+): string {
+  if (!source) return "";
+  if (source.table) return `p.${source.page} · Table ${source.table}, row ${source.row}`;
+  if (source.pages) {
+    const [a, b] = source.pages;
+    return a === b ? `p.${a}` : `pp.${a}–${b}`;
+  }
+  return source.page ? `p.${source.page}` : "";
+}
+
 export const initials = (name: string) =>
   name
     .split(/\s+/)

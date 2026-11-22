@@ -160,12 +160,16 @@ def _log(state: AgentState, stage: str, decision: _Decision, changes: Dict[str, 
     state["review_log"] = list(state.get("review_log", [])) + [entry]
 
 
+_CARRIED_REQUIREMENT_FIELDS = ("unit", "origin", "source", "attributes", "quantity_breakdown")
+
+
 def apply_requirements_review(state: AgentState, decision: RequirementsDecision) -> AgentState:
     if decision.requirements is None:
         _log(state, STAGE_REQUIREMENTS, decision, {"edited": False})
         return state
 
-    old_ids = {r["id"] for r in state.get("rfp_requirements", [])}
+    old_by_id = {r["id"]: r for r in state.get("rfp_requirements", [])}
+    old_ids = set(old_by_id)
     numbers = [int(m.group(1)) for i in old_ids if (m := re.fullmatch(r"R(\d+)", i))]
     next_number = max(numbers, default=0) + 1
 
@@ -177,12 +181,18 @@ def apply_requirements_review(state: AgentState, decision: RequirementsDecision)
             rid = f"R{next_number}"
             next_number += 1
         used.add(rid)
+        # Where the requirement came from (page / table row), its unit and
+        # other table columns are kept for an existing id; the reviewer edits
+        # only text, criticality and quantity.
+        kept = {k: v for k, v in old_by_id.get(rid, {}).items() if k in _CARRIED_REQUIREMENT_FIELDS}
         edited.append({
             "id":          rid,
             "requirement": edit.requirement.strip(),
             "criticality": edit.criticality,
             "weight":      CRITICALITY_WEIGHTS[edit.criticality],
             "quantity":    edit.quantity,
+            **kept,
+            **({} if rid in old_ids else {"origin": "reviewer"}),
         })
 
     state["rfp_requirements"] = edited

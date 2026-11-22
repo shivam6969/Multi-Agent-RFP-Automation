@@ -29,7 +29,12 @@ class AgentState(TypedDict, total=False):
 
     # ── RFP RAG outputs ───────────────────────────────────────────────────────
     rfp_answer: str                        # direct answer from RFP RAG
-    rfp_requirements: List[Dict[str, Any]] # [{requirement, criticality, weight, quantity?}]
+    rfp_requirements: List[Dict[str, Any]] # [{id, requirement, criticality, weight, quantity?,
+                                           #   unit?, origin: "table"|"text",
+                                           #   source?: {page, table, row, section} | {pages},
+                                           #   attributes?, quantity_breakdown?}]
+    rfp_tables: List[Dict[str, Any]]       # tables found in the RFP: [{id, kind (boq|spec|kv|other),
+                                           #   pages, section, caption, columns, roles, rows, detection}]
 
     # ── Business-Unit RAG outputs ─────────────────────────────────────────────
     bu_answer: str                         # direct answer from BU RAG

@@ -60,6 +60,7 @@ class RfpRegistryTests(unittest.TestCase):
         self.embedder = FakeEmbedder()
         patchers = [
             patch("rfp_rag.get_embedder", return_value=self.embedder),
+            patch("rfp_rag.get_reranker", return_value=FakeReranker()),
             patch("embedding_cache.EMBEDDING_CACHE_DIR", str(self.dir / "cache")),
         ]
         for patcher in patchers:

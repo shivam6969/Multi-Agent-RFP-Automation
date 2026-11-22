@@ -43,7 +43,11 @@ GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-previe
 
 BU_EMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
 BU_RERANK_MODEL: str = "BAAI/bge-reranker-base"
-RFP_EMBED_MODEL: str = "BAAI/bge-small-en"
+# Same model as the catalogue index, so one instance is shared (models.py).
+RFP_EMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
+RFP_RERANK_MODEL: str = BU_RERANK_MODEL
+# BGE's instruction for short search queries against longer passages.
+RFP_QUERY_INSTRUCTION: str = "Represent this sentence for searching relevant passages: "
 
 
 # ─── Business-Unit RAG data files ─────────────────────────────────────────────
@@ -56,7 +60,8 @@ BU_JSON_PATH: str = str(CATALOGUE_DIR / "havells.json")
 # ─── RFP RAG data files ────────────────────────────────────────────────────────
 
 RFP_PDF_PATH: str = os.environ.get("RFP_PDF_PATH", str(SAMPLES_DIR / "sample_rfp.pdf"))
-RFP_MAX_CHUNK_LENGTH: int = 800
+# Upper bound for one text chunk / one table slice in the RFP index (characters).
+RFP_MAX_CHUNK_LENGTH: int = 1000
 
 
 # ─── Retrieval knobs ──────────────────────────────────────────────────────────
@@ -66,7 +71,11 @@ BU_TOP_K_LARGE: int = 3
 BU_TOP_K_JSON: int = 5
 BU_RERANK_TOP_K: int = 5
 
-RFP_TOP_K: int = 3
+RFP_TOP_K: int = 6
+# Hybrid RFP search: this many candidates from each of keyword (BM25) and
+# embedding search are fused (reciprocal rank fusion), then reranked.
+RFP_CANDIDATE_K: int = 20
+RFP_USE_RERANKER: bool = os.environ.get("RFP_USE_RERANKER", "true").lower() not in ("0", "false", "no")
 
 # Requirement extraction reads the whole RFP in windows of about this many
 # characters (each window is one LLM call; windows run in parallel).

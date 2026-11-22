@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useCatalogueSearch, useSubmitReview } from "../../api/hooks";
 import type { MatchedItem, ProductBrief, Project } from "../../api/types";
 import { Badge, Button, cx, ErrorBox, ProgressBar } from "../../components/ui";
-import { formatINR, formatNumber } from "../../lib/format";
+import { formatINR, formatNumber, sourceLabel } from "../../lib/format";
 
 type Decision =
   | { action: "accept" }
@@ -134,7 +134,10 @@ function SuggestionCard({
     <div className={cx("rounded-xl border border-dashed p-4", isGap ? "border-slate-300 bg-slate-50" : "border-brand-300 bg-brand-50/40")}>
       <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Required</div>
       <div className="font-medium text-slate-800">{item.requirement}</div>
-      {item.qty != null && <div className="text-xs text-slate-500">Quantity {formatNumber(item.qty)}</div>}
+      {item.qty != null && (
+        <div className="text-xs text-slate-500">Quantity {formatNumber(item.qty)}{item.unit ? ` ${item.unit}` : ""}</div>
+      )}
+      {sourceLabel(item.source) && <div className="text-[11px] text-slate-400">RFP {sourceLabel(item.source)}</div>}
       <ArrowDown className="my-1.5 h-3.5 w-3.5 text-slate-400" />
 
       {product ? (
