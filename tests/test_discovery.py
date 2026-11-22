@@ -16,7 +16,9 @@ from discovery.discovery_agent import discovery_node, list_sources, run_discover
 from discovery.gem import GemSource, looks_like_gem, parse_gem_text
 from discovery.metadata import extract_metadata
 from discovery.samples import OFF_CATALOGUE, SampleSource, generate_rfp
-from rfp_rag import RfpRagTool
+from rfp_parser import parse_pdf
+from rfp_rag import build_chunks
+from rfp_tables import parse_quantity
 from settings import RFP_PDF_PATH
 
 LEGACY = Path(__file__).resolve().parent.parent / "legacy" / "gem_scraper"
@@ -104,8 +106,12 @@ class SamplePdfTests(unittest.TestCase):
             self.assertIn(c.buyer, text)
             for heading in ("1. Introduction", "2. Scope of Supply", "4. Eligibility Criteria", "7. Submission"):
                 self.assertIn(heading, text)
-            chunks = RfpRagTool._split_large_chunks(RfpRagTool._chunk_by_sections(text), 800)
-            self.assertGreaterEqual(len(chunks), 6)
+            doc = parse_pdf(c.pdf_path)
+            boq = [t for t in doc.tables if t.kind == "boq"]
+            self.assertEqual(len(boq), 1)
+            self.assertGreaterEqual(len(boq[0].rows), 6)
+            self.assertTrue(all(parse_quantity(r[2])[0] for r in boq[0].rows))
+            self.assertGreaterEqual(len(build_chunks(doc)), 6)
 
 
 class GemTests(unittest.TestCase):

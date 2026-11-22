@@ -2,9 +2,9 @@ import { ArrowRight, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { usePricingRules, useSubmitReview } from "../../api/hooks";
-import type { Criticality, Project } from "../../api/types";
+import type { Criticality, Project, RequirementSource } from "../../api/types";
 import { Badge, Button, cx, ErrorBox, Notice, PageHeader } from "../../components/ui";
-import { formatNumber } from "../../lib/format";
+import { formatNumber, sourceLabel } from "../../lib/format";
 
 interface Row {
   key: number;
@@ -12,6 +12,10 @@ interface Row {
   requirement: string;
   criticality: Criticality;
   quantity: string;
+  // Read-only context from the RFP (kept by the backend for existing ids).
+  unit?: string | null;
+  source?: RequirementSource;
+  breakdown?: Record<string, number>;
 }
 
 const CRITICALITY: Criticality[] = ["mandatory", "high", "medium", "low"];
@@ -30,8 +34,12 @@ export default function RequirementsReview({ project }: { project: Project }) {
       requirement: r.requirement,
       criticality: r.criticality,
       quantity: r.quantity ? String(r.quantity) : "",
+      unit: r.unit,
+      source: r.source,
+      breakdown: r.quantity_breakdown,
     })),
   );
+  const fromTables = project.requirements.filter((r) => r.origin === "table").length;
   const [nextKey, setNextKey] = useState(project.requirements.length);
   const [showSummary, setShowSummary] = useState(false);
 
@@ -85,18 +93,38 @@ export default function RequirementsReview({ project }: { project: Project }) {
       <div className="card">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
           <h2 className="font-semibold text-slate-800">Requirements</h2>
-          <Badge>{rows.length} items</Badge>
+          <div className="flex items-center gap-2">
+            {fromTables > 0 && (
+              <span title="Read directly from the RFP's item tables: quantities come from the table cells">
+                <Badge tone="blue">{fromTables} from tables</Badge>
+              </span>
+            )}
+            <Badge>{rows.length} items</Badge>
+          </div>
         </div>
         <div className="divide-y divide-slate-100">
           {rows.map((r, i) => (
-            <div key={r.key} className="grid grid-cols-[2.5rem_1fr_8.5rem_6.5rem_2rem] items-center gap-3 px-5 py-2.5">
-              <span className="font-mono text-xs text-slate-400">{r.id ?? `new ${i + 1}`}</span>
-              <input
-                className={cx("input py-1.5", r.requirement.trim().length < 3 && "border-rose-300")}
-                value={r.requirement}
-                onChange={(e) => update(r.key, { requirement: e.target.value })}
-                placeholder="Describe the requirement"
-              />
+            <div key={r.key} className="grid grid-cols-[2.5rem_1fr_8.5rem_6.5rem_2rem] items-start gap-3 px-5 py-2.5">
+              <span className="pt-2 font-mono text-xs text-slate-400">{r.id ?? `new ${i + 1}`}</span>
+              <div className="min-w-0">
+                <input
+                  className={cx("input w-full py-1.5", r.requirement.trim().length < 3 && "border-rose-300")}
+                  value={r.requirement}
+                  onChange={(e) => update(r.key, { requirement: e.target.value })}
+                  placeholder="Describe the requirement"
+                />
+                {(r.source || r.unit || r.breakdown) && (
+                  <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-400">
+                    {sourceLabel(r.source) && <span title={r.source?.section || undefined}>{sourceLabel(r.source)}</span>}
+                    {r.unit && <span>Unit: {r.unit}</span>}
+                    {r.breakdown && (
+                      <span>
+                        {Object.entries(r.breakdown).map(([k, v]) => `${k} ${formatNumber(v)}`).join(" + ")}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <span className={cx("h-2 w-2 shrink-0 rounded-full", {
                   mandatory: "bg-rose-500", high: "bg-amber-500", medium: "bg-sky-500", low: "bg-slate-400",

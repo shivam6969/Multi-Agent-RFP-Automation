@@ -147,8 +147,16 @@ def _parse_requirements(raw: Any) -> List[Dict[str, Any]]:
         qty = item.get("quantity", item.get("qty"))
         if qty is not None:
             parsed["qty"] = qty
+        # Provenance from the RFP agent (table row / page) and the unit travel
+        # with the item so the review screens can show where it came from.
+        for key in _CARRIED_FIELDS:
+            if item.get(key) is not None:
+                parsed[key] = item[key]
         out.append(parsed)
     return out
+
+
+_CARRIED_FIELDS = ("unit", "origin", "source", "attributes", "quantity_breakdown")
 
 
 # ─── Step 3: match one product item ───────────────────────────────────────────
@@ -311,6 +319,7 @@ def matching_agent_node(state: AgentState) -> AgentState:
                 "weight":      round(req["weight"] / len(parts), 4),
                 "criticality": req["criticality"],
                 # A quantity stated for the whole group is ambiguous per item.
+                **{k: req[k] for k in ("origin", "source") if k in req},
             }
             for k, part in enumerate(parts, 1)
         ]

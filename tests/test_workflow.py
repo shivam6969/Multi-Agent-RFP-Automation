@@ -206,6 +206,24 @@ class RequirementsReviewTests(WorkflowTestCase):
         self.assertEqual(status["state"]["review_log"][0]["changes"],
                          {"edited": True, "before": 3, "after": 3, "added": 1, "removed": 1})
 
+    def test_edits_keep_where_a_requirement_came_from(self) -> None:
+        self.wf.start("p1", "sample.pdf")
+        snap = self.wf.status("p1")["state"]
+        snap["rfp_requirements"][0].update(unit="Nos", origin="table",
+                                           source={"page": 2, "table": "T1", "row": "4"})
+        self.wf.graph.update_state(self.wf._config("p1"), {"rfp_requirements": snap["rfp_requirements"]},
+                                   as_node="extract")
+        self.wf.graph.invoke(None, self.wf._config("p1"))      # pause at the review again
+        status = self.wf.resume("p1", {"requirements": [
+            {"id": "R1", "requirement": "16A 2Way switches, white", "criticality": "high", "quantity": 320},
+            {"requirement": "Supply TV sockets", "criticality": "low"},
+        ]})
+        r1, new = status["state"]["rfp_requirements"]
+        self.assertEqual((r1["unit"], r1["origin"], r1["source"]["row"]), ("Nos", "table", "4"))
+        self.assertEqual(r1["quantity"], 320)
+        self.assertEqual(new["origin"], "reviewer")
+        self.assertNotIn("source", new)
+
     def test_invalid_edit_is_rejected_and_nothing_moves(self) -> None:
         self.wf.start("p1", "sample.pdf")
         with self.assertRaises(ValueError):

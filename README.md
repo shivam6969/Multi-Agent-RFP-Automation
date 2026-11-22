@@ -122,10 +122,12 @@ Classifies the incoming user query into one of six route labels using the LLM at
 | `full` | Full pipeline: RFP analysis + matching + pricing |
 | `report` | Full proposal generation route that also produces a submission-ready vendor PDF |
 
-### RFP Agent (`rfp_agent.py`)
-- Retrieves relevant chunks from the RFP PDF via FAISS and answers the user query.
-- Independently extracts a structured list of requirements `[{requirement, criticality, weight}]` for downstream agents.
-- Uses **PyMuPDF** to parse the PDF and **BAAI/bge-small-en** for embeddings.
+### RFP Agent (`rfp_agent.py` + `rfp_parser.py`, `rfp_tables.py`, `rfp_rag.py`)
+- **Reads tables.** `rfp_parser.py` uses PyMuPDF to split the PDF into headings, text and tables (ruled tables via `find_tables()`, item lists without gridlines, tables continued over pages, merged cells, two-row headers), and removes running headers and footers.
+- **Item lists are read by rules.** `rfp_tables.py` recognises the columns (description, quantity, unit, per-location quantities, make, rate…). Each item row becomes a requirement with the exact quantity from its cell and its source ("p.2 · Table T2, row 13"); the LLM never guesses which number belongs to which item.
+- **The rest by the LLM.** Narrative sections and the other tables (as Markdown) are read in parallel windows and return `[{requirement, criticality, quantity}]`, schema-validated.
+- **Answers questions** with hybrid search over section text, table slices and single table rows: BM25 keywords + **BAAI/bge-small-en-v1.5** embeddings, fused and reranked with the cross-encoder.
+- Try it on the table-heavy samples in `data/samples/rfp_*.pdf` (made by `python -m tests.sample_rfps`); `python -m tests.run_rfp_table_eval` scores them without LLM calls.
 
 ### BU Agent (`bu_agent.py` + `bu_rag.py`)
 - `bu_agent.py` is the LangGraph node wrapper.
@@ -173,11 +175,13 @@ Classifies the incoming user query into one of six route labels using the LLM at
 ├── master_agent.py          # LangGraph Q&A orchestrator and CLI entrypoint
 ├── bu_agent.py              # BU node wrapper used by the graph
 ├── rfp_agent.py             # RFP RAG node — reads and analyses the RFP PDF
+├── rfp_parser.py            # PDF -> headings, text and tables (PyMuPDF)
+├── rfp_tables.py            # table columns/kinds; item rows -> requirements
 ├── matching_agent.py        # Matching node — requirement vs. catalog gap analysis
 ├── pricing_agent.py         # Pricing node — quotes, margins, GST, volume discounts
 ├── report_agent.py          # Proposal generator node — Gemini + PDF rendering
 ├── bu_rag.py                # BU product catalog RAG tool (hybrid search + rerank)
-├── rfp_rag.py               # RFP PDF RAG tool (FAISS + section chunking)
+├── rfp_rag.py               # RFP RAG tool (text/table/row chunks, hybrid search + rerank)
 ├── llm.py                   # Thin OpenRouter client wrapper used by all agents
 ├── state.py                 # Shared AgentState TypedDict
 ├── settings.py              # Central configuration (models, paths, pricing rules)
@@ -190,7 +194,8 @@ Classifies the incoming user query into one of six route labels using the LLM at
 │   │   ├── havells_small_chunks.txt  # Fine-grained catalog text chunks
 │   │   └── havells_large_chunks.txt  # Broad catalog text chunks
 │   └── samples/
-│       └── sample_rfp.pdf   # Sample RFP (ABC Infrastructure, modular switches)
+│       ├── sample_rfp.pdf   # Sample RFP (ABC Infrastructure, modular switches)
+│       └── rfp_*.pdf        # Table-heavy sample RFPs + *_truth.json (tests/sample_rfps.py)
 ├── docs/
 │   ├── design/              # UI design screens for the v2 dashboard
 │   └── pricing-agent.md     # Detailed pricing agent guide
@@ -430,7 +435,7 @@ Unit tests run offline: every LLM call is mocked, and the test package blanks th
 python -m unittest discover -s tests -t . -v
 ```
 
-Expected output: **12 tests, all OK**.
+Expected output: **181 tests, all OK**.
 
 ---
 

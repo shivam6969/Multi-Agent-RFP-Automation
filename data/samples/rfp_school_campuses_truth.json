@@ -1,0 +1,97 @@
+{
+  "name": "school",
+  "title": "Supply of Electrical Wiring Accessories for Three School Campuses",
+  "buyer": "Greenfield Public School Society",
+  "items": [
+    {
+      "description": "6Ax/10Ax 1 way switch",
+      "quantity": 1060,
+      "unit": "Nos",
+      "catalogue": "Coral / 6Ax/10Ax 1way Switch",
+      "note": ""
+    },
+    {
+      "description": "6Ax/10Ax 2 way switch",
+      "quantity": 130,
+      "unit": "Nos",
+      "catalogue": "Coral / 6Ax/10Ax 2way Switch",
+      "note": ""
+    },
+    {
+      "description": "16Ax 1 way switch with indicator",
+      "quantity": 210,
+      "unit": "Nos",
+      "catalogue": "Coral / 16Ax 1way Switch with Ind..",
+      "note": ""
+    },
+    {
+      "description": "6Ax/10Ax bell push switch",
+      "quantity": 56,
+      "unit": "Nos",
+      "catalogue": "Coral / 6Ax/10Ax Bell Push Switch",
+      "note": ""
+    },
+    {
+      "description": "6A 3 pin shuttered socket",
+      "quantity": 740,
+      "unit": "Nos",
+      "catalogue": "Coral / 6A 3 Pin Shuttered Socket",
+      "note": ""
+    },
+    {
+      "description": "6-16A 3 pin shuttered socket",
+      "quantity": 200,
+      "unit": "Nos",
+      "catalogue": "Coral / 6-16A 3 Pin Shuttered Socket",
+      "note": "total column disagrees with campus quantities"
+    },
+    {
+      "description": "2M outer plate, Salmon Red",
+      "quantity": 150,
+      "unit": "Nos",
+      "catalogue": "Coral Magna Salmon Red / 2M Outer Plate",
+      "note": ""
+    },
+    {
+      "description": "4M outer plate, Midnight Blue",
+      "quantity": 140,
+      "unit": "Nos",
+      "catalogue": "Coral Magna Midnight Blue / 4M Outer Plate",
+      "note": ""
+    },
+    {
+      "description": "6M outer plate, Ocean Green",
+      "quantity": 90,
+      "unit": "Nos",
+      "catalogue": "Coral Magna Ocean Green / 6M Outer Plate",
+      "note": ""
+    },
+    {
+      "description": "3M flush metal GI box (4X3)",
+      "quantity": 500,
+      "unit": "Nos",
+      "catalogue": "Boxes / 3M Box (4X3)",
+      "note": ""
+    },
+    {
+      "description": "6M flush metal GI box (8X3)",
+      "quantity": 230,
+      "unit": "Nos",
+      "catalogue": "Boxes / 6M Box (8X3)",
+      "note": ""
+    },
+    {
+      "description": "16 A SP C mini MCB",
+      "quantity": 100,
+      "unit": "Nos",
+      "catalogue": "Coral / 16 A SP C MINI MCB Coral",
+      "note": ""
+    }
+  ],
+  "tables": {
+    "boq": 1
+  },
+  "facts": {
+    "How many 1 way switches are needed in total?": "1,060"
+  }
+}

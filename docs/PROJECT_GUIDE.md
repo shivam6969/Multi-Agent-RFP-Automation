@@ -276,20 +276,49 @@ give unlimited, varied, realistic test inputs with known answers: we know
 which items are in the catalogue and which aren't. They're always marked as
 fictitious, so nobody mistakes them for real tenders.
 
-### 5.2 RFP Agent (`rfp_agent.py`, `rfp_rag.py`)
+### 5.2 RFP Agent (`rfp_agent.py`, `rfp_rag.py`, `rfp_parser.py`, `rfp_tables.py`)
 
-**Job:** turn the PDF into a clean list of requirements.
+**Job:** turn the PDF into a clean list of requirements, including the ones in tables.
 
-**How:**
+Real tenders put the item list (Bill of Quantities / Schedule of Requirements) in a
+**table**. Plain text extraction flattens a table into one cell per line, so the LLM had
+to guess which number belongs to which item, and a regex that split on any decimal
+("2.1A") silently dropped rows. The RFP reader is therefore table-aware:
 
-1. **Read** the text with PyMuPDF and split it into sections and chunks of up to 800 characters.
-2. **Extract** requirements: the text is cut into **windows of 12,000 characters**, and each window goes to the LLM **in parallel** (up to 4 at once). This covers the **whole document**, not just a few search hits.
-3. The LLM returns JSON: requirement text, quantity, criticality. The prompt defines the criticality levels and says "skip summary lines if a detailed list exists" (otherwise the same items were listed twice).
-4. Results are **validated** against a schema; failures are retried once; a window that still fails becomes a **warning** instead of crashing.
-5. Duplicates across windows are removed; IDs `R1, R2…` are assigned; weights come from criticality: **mandatory 4, high 3, medium 2, low 1**.
-6. It also writes a short **summary** of the RFP. For short RFPs it reads all chunks; for long ones it uses retrieval (the 3 nearest chunks).
+1. **Parse** (`rfp_parser.py`, PyMuPDF only): headings, text and tables in reading order.
+   Ruled tables come from PyMuPDF's `find_tables()`; item lists drawn without gridlines are
+   found from a header line naming a description and a quantity column. A table continued
+   on the next page is joined (repeated header dropped), merged cells are filled down, a
+   two-row header ("Quantity" over "Campus A | Campus B") is combined, and running
+   headers/footers/page numbers are removed. Nothing is dropped for being short.
+2. **Understand tables** (`rfp_tables.py`): each column gets a role from its header
+   (S.No, description, quantity, unit, per-location quantity, make, rate/amount…); each
+   table is classified as an **item list (boq)**, spec table, key-value table or other.
+3. **Item-list rows become requirements by rules, not by the LLM**: one per row, with the
+   quantity from the quantity cell (or the sum of per-location columns), the unit, the
+   category row above it as context, and its **source** (page, table, row). Rows in
+   boxes/metres and totals that don't add up become **warnings** for the reviewer. If a
+   table's headers are unusual, one small LLM call maps its columns first.
+4. **The rest goes to the LLM**: narrative sections plus the other tables (as Markdown) in
+   **windows of 12,000 characters**, in parallel (up to 4 at once). Item tables appear there
+   only as a one-line placeholder, so their rows are not extracted twice. Replies are
+   **validated** against a schema, retried once, and a failed window becomes a **warning**.
+5. Duplicates are removed; IDs `R1, R2…` are assigned (table rows first); weights come from
+   criticality: **mandatory 4, high 3, medium 2, low 1**.
+6. It also writes a short **summary** of the RFP: from the whole document (tables as
+   Markdown) when it is short, otherwise from retrieval.
 
-**Retrieval for the summary** uses BGE embeddings + FAISS (see [section 6](#6-the-ai-models-and-methods)). Each RFP's index is cached by file fingerprint (up to 8 RFPs in memory).
+**Retrieval** (`rfp_rag.py`) indexes three kinds of chunk, each labelled with its section
+and page: section text, table slices (Markdown, header repeated) and **one chunk per table
+row** ("Description: USB charger; Unit: Nos; Qty: 160"). Search is **hybrid**: BM25 keywords
+(exact tokens such as "IS 3854", "16A", "EMD") and BGE embeddings are fused with reciprocal
+rank fusion, then reranked by the same cross-encoder the catalogue uses. Each RFP's index is
+cached by file fingerprint (up to 8 RFPs in memory).
+
+**Test it:** `python -m tests.sample_rfps` writes three table-heavy sample RFPs (hotel BOQ over
+two pages, school with per-campus quantities, office list without gridlines) with their ground
+truth to `data/samples/`; `python -m tests.run_rfp_table_eval` scores parsing and retrieval on
+them (no LLM calls).
 
 ### 5.3 Matching Agent (`matching_agent.py`, `product_matcher.py`)
 
@@ -439,7 +468,7 @@ but not the router.
 |-------|------|---------------|----------|
 | **Llama 4 Scout** (`meta-llama/llama-4-scout`) | Large language model | Cloud, via OpenRouter | Requirement extraction, classification, splitting, product pick, upload metadata, Q&A |
 | **Gemini** (`gemini-3.1-flash-lite-preview`) | Large language model | Cloud, Google | Proposal text |
-| **BGE small** (`BAAI/bge-small-en-v1.5`, `bge-small-en`) | Embedding model | **Locally on the laptop** | Turning text into vectors for search |
+| **BGE small** (`BAAI/bge-small-en-v1.5`, shared by RFP and catalogue search) | Embedding model | **Locally on the laptop** | Turning text into vectors for search |
 | **BGE reranker** (`BAAI/bge-reranker-base`) | Cross-encoder | **Locally** | Scoring how well a product matches an item (0–1) |
 
 The local models are downloaded once (~200 MB) and loaded **once per server
@@ -744,8 +773,10 @@ Synapse/
 ├── workflow.py        the review workflow graph (pauses, resume, retry) + CLI
 ├── master_agent.py    original Q&A graph (router + agents) + CLI
 │
-├── rfp_agent.py       requirement extraction + RFP summary
-├── rfp_rag.py         RFP text chunks, embeddings, FAISS index (cached per RFP)
+├── rfp_agent.py       requirement extraction (table rows by rules, text by LLM) + RFP summary
+├── rfp_parser.py      PDF -> headings, text and tables (PyMuPDF find_tables, no-gridline lists)
+├── rfp_tables.py      column roles, table kinds, item rows -> requirements, Markdown / row records
+├── rfp_rag.py         RFP chunks (text, table, row), hybrid BM25 + embedding search, rerank
 ├── matching_agent.py  classify → split → match → duplicates → summary
 ├── product_matcher.py candidate search, confidence, LLM pick by id, splitting
 ├── bu_agent.py        catalogue Q&A agent
@@ -768,9 +799,9 @@ Synapse/
 ├── discovery/         Discovery Agent: base interface, samples, gem, metadata, agent node
 ├── api/               FastAPI app: main, context (auth, jobs), routes_*.py, schemas
 ├── frontend/          React dashboard (src/pages, src/components, src/api)
-├── tests/             141 offline tests + run_*.py manual runners
+├── tests/             181 offline tests, sample_rfps.py (table samples) + run_*.py manual runners
 ├── data/catalogue/    havells.json + small/large text chunks
-├── data/samples/      sample_rfp.pdf (the one real sample RFP)
+├── data/samples/      sample_rfp.pdf + three table-heavy sample RFPs (rfp_*.pdf, *_truth.json)
 ├── docs/              design mock-ups, DEMO.md, pricing guide, this guide
 ├── legacy/gem_scraper/ original standalone scraper (reference only)
 ├── report/            Project-III report (.docx)

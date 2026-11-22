@@ -85,12 +85,26 @@ export interface CompanyProfile {
 
 export type Criticality = "mandatory" | "high" | "medium" | "low";
 
+// Where a requirement was found in the RFP: a table row, or a range of pages.
+export interface RequirementSource {
+  page?: number;
+  table?: string;
+  row?: string;
+  section?: string;
+  pages?: [number, number];
+}
+
 export interface Requirement {
   id: string;
   requirement: string;
   criticality: Criticality;
   weight: number;
   quantity: number | null;
+  unit?: string | null;
+  origin?: "table" | "text" | "reviewer";
+  source?: RequirementSource;
+  attributes?: Record<string, string>;
+  quantity_breakdown?: Record<string, number>;
 }
 
 export interface ProductBrief {
@@ -122,6 +136,8 @@ export interface MatchedItem extends Partial<ProductBrief> {
   weight: number;
   criticality?: Criticality;
   qty?: number;
+  unit?: string | null;
+  source?: RequirementSource;
   confidence?: "high" | "medium" | "low" | "manual" | null;
   rationale?: string;
   alternatives?: ProductBrief[];

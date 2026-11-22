@@ -1,0 +1,200 @@
+{
+  "name": "hotel",
+  "title": "Supply of Modular Switches and Accessories for Hotel Renovation",
+  "buyer": "Sunrise Grand Hotels Pvt. Ltd.",
+  "items": [
+    {
+      "description": "6A/10A 1 Way switch",
+      "quantity": 640,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6A/10A 1Way Switch",
+      "note": ""
+    },
+    {
+      "description": "6A/10A 2 Way switch",
+      "quantity": 180,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6A/10A 2Way Switch",
+      "note": ""
+    },
+    {
+      "description": "6A/10A 1 Way switch with indicator",
+      "quantity": 220,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6A/10A 1Way With Ind. Switch",
+      "note": ""
+    },
+    {
+      "description": "16A 1 Way switch with indicator",
+      "quantity": 260,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 16A 1Way Switch With Ind.",
+      "note": ""
+    },
+    {
+      "description": "6A/10A Bell push switch",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6A/10A Bell Push Switch",
+      "note": ""
+    },
+    {
+      "description": "32A DP switch with indicator (Mega)",
+      "quantity": 40,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 32A DP Switch with ind Mega",
+      "note": ""
+    },
+    {
+      "description": "6A 3 Pin socket",
+      "quantity": 300,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6A 3 Pin Socket",
+      "note": ""
+    },
+    {
+      "description": "6-16A 3 Pin combined socket",
+      "quantity": 260,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 6-16A 3 Pin Combined Socket",
+      "note": ""
+    },
+    {
+      "description": "Universal socket",
+      "quantity": 150,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / Universal Socket",
+      "note": ""
+    },
+    {
+      "description": "25A socket for geysers",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 25A Socket",
+      "note": ""
+    },
+    {
+      "description": "High speed fan regulator",
+      "quantity": 140,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / High Speed Fan Regulator",
+      "note": ""
+    },
+    {
+      "description": "Dimmer 400 W",
+      "quantity": 60,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / Dimmer 400 W",
+      "note": ""
+    },
+    {
+      "description": "USB charger, 2.1A output",
+      "quantity": 160,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / USB Charger",
+      "note": ""
+    },
+    {
+      "description": "RJ-45 jack with Cat-6",
+      "quantity": 140,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / RJ-45 Jack With Cat-6",
+      "note": ""
+    },
+    {
+      "description": "TV socket",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / TV Socket",
+      "note": ""
+    },
+    {
+      "description": "Telephone socket",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / Telephone Socket",
+      "note": ""
+    },
+    {
+      "description": "4M LED footlight",
+      "quantity": 80,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica / 4M LED Footlight",
+      "note": ""
+    },
+    {
+      "description": "2M cover plate",
+      "quantity": 260,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica Magnesium Grey / 2M Cover Plate",
+      "note": ""
+    },
+    {
+      "description": "4M cover plate",
+      "quantity": 220,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica Magnesium Grey / 4M Cover Plate",
+      "note": ""
+    },
+    {
+      "description": "6M cover plate",
+      "quantity": 140,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica Magnesium Grey / 6M Cover Plate",
+      "note": ""
+    },
+    {
+      "description": "8M (H) cover plate",
+      "quantity": 90,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica Magnesium Grey / 8M (H) Cover Plate",
+      "note": ""
+    },
+    {
+      "description": "12M cover plate",
+      "quantity": 40,
+      "unit": "Nos",
+      "catalogue": "Oro Metallica Magnesium Grey / 12 M Cover Plate",
+      "note": ""
+    },
+    {
+      "description": "Electronic key card switch",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro / Electronic Key Card",
+      "note": ""
+    },
+    {
+      "description": "Do not disturb & clean my room indicator",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro / Do not Disturb & Clean My room",
+      "note": ""
+    },
+    {
+      "description": "Ceiling rose",
+      "quantity": 30,
+      "unit": "Box",
+      "catalogue": "Accessories / Ceiling Rose",
+      "note": "quantity in boxes, not pieces"
+    },
+    {
+      "description": "Smart door lock with RFID card reader",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": null,
+      "note": "not in catalogue"
+    }
+  ],
+  "tables": {
+    "kv": 1,
+    "boq": 1,
+    "spec": 1,
+    "other_or_spec": 1
+  },
+  "facts": {
+    "What is the EMD amount?": "25,000",
+    "What is the warranty period?": "2 years",
+    "How many USB chargers are required?": "160"
+  }
+}

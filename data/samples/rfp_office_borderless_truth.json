@@ -1,0 +1,70 @@
+{
+  "name": "office",
+  "title": "Supply of Wiring Devices for Office Fit-out, Tower B",
+  "buyer": "Northwind Office Parks LLP",
+  "items": [
+    {
+      "description": "Modular switch 6A/10A 1 way, white, Oro range",
+      "quantity": 480,
+      "unit": "Nos",
+      "catalogue": "Oro / 6A/10A 1 way Switch",
+      "note": ""
+    },
+    {
+      "description": "Modular switch 16A 1 way with indicator, Oro range",
+      "quantity": 160,
+      "unit": "Nos",
+      "catalogue": "Oro / 16A 1 way switch with ind.",
+      "note": ""
+    },
+    {
+      "description": "6/16A 3 pin combined shuttered socket",
+      "quantity": 220,
+      "unit": "Nos",
+      "catalogue": "Oro / 6/16A 3 Pin Combined Shuttered Socket",
+      "note": ""
+    },
+    {
+      "description": "RJ-45 jack with Cat 6 for workstations and meeting rooms",
+      "quantity": 300,
+      "unit": "Nos",
+      "catalogue": "Oro / RJ-45 Jack with cat 6",
+      "note": ""
+    },
+    {
+      "description": "USB charger (1M)",
+      "quantity": 120,
+      "unit": "Nos",
+      "catalogue": "Oro / USB Charger (1M)",
+      "note": ""
+    },
+    {
+      "description": "Step fan regulator (1M)",
+      "quantity": 60,
+      "unit": "Nos",
+      "catalogue": "Oro / Step Fan Regulator (1M)",
+      "note": ""
+    },
+    {
+      "description": "4 way extension board",
+      "quantity": 40,
+      "unit": "Sets",
+      "catalogue": "Accessories / 4 Way Extension Board",
+      "note": ""
+    },
+    {
+      "description": "8 module surface mounting plastic box (5X5) for Oro",
+      "quantity": 75,
+      "unit": "Nos",
+      "catalogue": "Boxes / 8 Module (Oro) (5X5)",
+      "note": ""
+    }
+  ],
+  "tables": {
+    "boq": 1,
+    "other": 1
+  },
+  "facts": {
+    "When is lot 2 delivered?": "25 days"
+  }
+}
